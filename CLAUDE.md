@@ -96,7 +96,7 @@ python scripts/evaluate.py \
 Pretrain (Causal LM) → SFT (Instruction Tuning) → DPO/GRPO/PPO (Alignment)
 ```
 
-Each stage uses its own Trainer class (PretrainTrainer, SFTTrainer, DPOTrainer) that inherits from the base Trainer.
+Each stage uses its own Trainer class (PretrainTrainer, SFTTrainer, DPOTrainer, GRPOTrainer, PPOTrainer) that inherits from the base Trainer.
 
 ### Model Architecture
 The model follows the modern LLaMA/Qwen architecture:
@@ -108,6 +108,7 @@ The model follows the modern LLaMA/Qwen architecture:
 - **Norm**: `model/norm.py` - RMSNorm and LayerNorm
 - **Block**: `model/transformer_block.py` - Pre-LN Transformer decoder block
 - **CausalLM**: `model/causal_lm.py` - Full model with generate() method
+- **LoRA/QLoRA**: `model/lora.py`, `model/qlora.py` - Parameter-efficient fine-tuning
 
 Key architectural switches in ModelConfig:
 - `use_rms_norm` (True=LLaMA-style, False=Original Transformer)

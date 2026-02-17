@@ -136,23 +136,20 @@ class DPOTrainer(Trainer):
 
         流程:
             Step 1: 拼接输入
-                    concatenated_input_ids = cat([chosen_input_ids, rejected_input_ids], dim=0)
-                    concatenated_attention_mask = cat([chosen_attention_mask, rejected_attention_mask], dim=0)
-                    形状: [2*batch_size, max_seq_len]
+                    将 chosen 和 rejected 的 input_ids 在 batch 维度拼接
+                    将 chosen 和 rejected 的 attention_mask 在 batch 维度拼接
+                    拼接后的形状为 [2*batch_size, max_seq_len]
 
             Step 2: 前向传播
-                    outputs = model(
-                        input_ids=concatenated_input_ids,
-                        attention_mask=concatenated_attention_mask,
-                    )
-                    logits = outputs.logits
-                    形状: [2*batch_size, seq_len, vocab_size]
+                    将拼接后的输入传入模型进行前向传播
+                    获取输出的 logits
+                    logits 形状为 [2*batch_size, seq_len, vocab_size]
 
             Step 3: 分离 chosen 和 rejected
-                    chosen_logits = logits[:batch_size]
-                    rejected_logits = logits[batch_size:]
+                    从拼接后的 logits 中分离出前半部分作为 chosen_logits
+                    分离出后半部分作为 rejected_logits
 
-            Step 4: 返回
+            Step 4: 返回分离后的 logits 和 labels
         """
         pass
 
@@ -169,58 +166,38 @@ class DPOTrainer(Trainer):
         训练流程:
 
             Step 1: 策略模型前向传播
-                    policy_chosen_logits, policy_rejected_logits = \
-                        self.concatenated_forward(self.model, batch)
+                    调用 concatenated_forward 方法对策略模型进行前向传播
+                    获取 chosen 和 rejected 样本的 logits
 
             Step 2: 计算策略模型的 log probabilities
-                    policy_chosen_logps = dpo_loss.compute_log_probs(
-                        policy_chosen_logits, batch["chosen_labels"]
-                    )
-                    policy_rejected_logps = dpo_loss.compute_log_probs(
-                        policy_rejected_logits, batch["rejected_labels"]
-                    )
+                    使用 DPO loss 模块的 compute_log_probs 方法
+                    分别计算 chosen 和 rejected 样本的对数概率
 
             Step 3: 参考模型前向传播 (无梯度)
-                    with torch.no_grad():
-                        ref_chosen_logits, ref_rejected_logits = \
-                            self.concatenated_forward(self.ref_model, batch)
+                    在无梯度环境下调用 concatenated_forward
+                    对参考模型进行前向传播获取 logits
 
             Step 4: 计算参考模型的 log probabilities
-                    ref_chosen_logps = dpo_loss.compute_log_probs(
-                        ref_chosen_logits, batch["chosen_labels"]
-                    )
-                    ref_rejected_logps = dpo_loss.compute_log_probs(
-                        ref_rejected_logits, batch["rejected_labels"]
-                    )
+                    同样使用 compute_log_probs 方法
+                    分别计算参考模型对 chosen 和 rejected 样本的对数概率
 
             Step 5: 计算 DPO 损失
-                    loss_dict = self.dpo_loss(
-                        policy_chosen_logps=policy_chosen_logps,
-                        policy_rejected_logps=policy_rejected_logps,
-                        reference_chosen_logps=ref_chosen_logps,
-                        reference_rejected_logps=ref_rejected_logps,
-                    )
-                    loss = loss_dict["loss"]
+                    调用 DPO loss 模块计算损失
+                    传入策略模型和参考模型的对数概率
+                    从返回的字典中提取损失值
 
             Step 6: 反向传播和优化
-                    loss.backward()
-                    # 梯度裁剪
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm)
-                    # 优化器步骤
-                    self.optimizer.step()
-                    self.lr_scheduler.step()
-                    self.optimizer.zero_grad()
+                    执行反向传播计算梯度
+                    进行梯度裁剪以防止梯度爆炸
+                    执行优化器步骤更新模型参数
+                    更新学习率调度器
+                    清空梯度
 
             Step 7: 收集指标
-                    metrics = {
-                        "loss": loss.item(),
-                        "chosen_rewards": loss_dict["chosen_rewards"].item(),
-                        "rejected_rewards": loss_dict["rejected_rewards"].item(),
-                        "reward_margin": loss_dict["reward_margin"].item(),
-                        "learning_rate": self.lr_scheduler.get_last_lr()[0],
-                    }
+                    从损失字典和训练状态中提取各项指标
+                    包括损失值、chosen 奖励、rejected 奖励、奖励差距和学习率
 
-            Step 8: 返回指标
+            Step 8: 返回指标字典
 
         内存优化:
             - 参考模型前向在 no_grad 环境下

@@ -116,27 +116,26 @@ class PPOTrainer(Trainer):
 
         流程:
             Step 1: 生成回复
-                    with torch.no_grad():
-                        responses = actor.generate(prompts, max_new_tokens)
+                    在无梯度环境下使用 actor 模型的 generate 方法生成回复
+                    生成的回复包含 prompt 和新生成的内容
 
             Step 2: 计算策略 log probs
-                    logits = actor(responses).logits
-                    log_probs = compute_log_probs(logits, responses)
+                    将生成的完整序列输入 actor 模型获取 logits
+                    使用 compute_log_probs 方法计算对数概率
 
             Step 3: 计算参考模型 log probs
-                    with torch.no_grad():
-                        ref_logits = ref_model(responses).logits
-                        ref_log_probs = compute_log_probs(ref_logits, responses)
+                    在无梯度环境下将序列输入参考模型
+                    计算参考模型的对数概率
 
             Step 4: 计算奖励
-                    with torch.no_grad():
-                        rewards = reward_model(responses)
+                    在无梯度环境下使用奖励模型对生成的回复进行打分
+                    获取每个序列的奖励值
 
             Step 5: 计算价值估计
-                    with torch.no_grad():
-                        values = critic_model(responses)
+                    在无梯度环境下使用价值模型估计状态价值
+                    获取每个位置的价值估计
 
-            Step 6: 返回所有数据
+            Step 6: 返回包含所有数据的字典
         """
         pass
 
@@ -181,46 +180,33 @@ class PPOTrainer(Trainer):
         训练流程:
 
             Step 1: 生成样本
-                    prompts = batch["prompts"]
-                    rollout_data = self.rollout(prompts)
+                    从批次中提取 prompts
+                    调用 rollout 方法生成样本数据
 
             Step 2: 计算优势和回报
-                    advantages, returns = self.compute_advantages_and_returns(
-                        rollout_data["rewards"],
-                        rollout_data["values"],
-                        rollout_data["masks"],
-                    )
+                    使用 GAE 算法计算优势值和回报值
+                    传入奖励、价值估计和掩码
 
             Step 3: PPO 更新循环 (多次)
-                    for ppo_epoch in range(ppo_epochs):
-                        # 重新计算当前策略的 log probs 和 values
-                        logits = actor(rollout_data["input_ids"]).logits
-                        log_probs = compute_log_probs(logits, ...)
+                    对于每个 PPO epoch:
+                        重新计算当前策略的 log probs 和 values
+                        将 rollout 数据输入 actor 模型获取新的 logits 和对数概率
+                        将数据输入 critic 模型获取新的价值估计
 
-                        values = critic(rollout_data["input_ids"])
+                        计算 PPO 损失
+                        传入新旧策略的对数概率、价值估计、回报和优势等
+                        获取包含各项损失的字典
 
-                        # 计算 PPO 损失
-                        loss_dict = ppo_loss(
-                            logits=logits,
-                            values=values,
-                            log_probs=log_probs,
-                            old_log_probs=rollout_data["log_probs"],
-                            old_values=rollout_data["values"],
-                            returns=returns,
-                            advantages=advantages,
-                            ref_log_probs=rollout_data["ref_log_probs"],
-                        )
+                        更新 Actor
+                        清空 actor 优化器梯度
+                        执行反向传播
+                        执行优化器步骤
 
-                        # 更新 Actor
-                        actor_optimizer.zero_grad()
-                        loss_dict["total_loss"].backward()
-                        actor_optimizer.step()
-
-                        # 更新 Critic (可选)
-                        if update_critic:
-                            critic_optimizer.zero_grad()
-                            loss_dict["value_loss"].backward()
-                            critic_optimizer.step()
+                        更新 Critic (可选)
+                        如果配置需要更新 critic:
+                            清空 critic 优化器梯度
+                            根据价值损失执行反向传播
+                            执行优化器步骤
 
             Step 4: 返回平均指标
         """

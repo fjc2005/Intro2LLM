@@ -116,48 +116,41 @@ class DPODataset(BaseDataset):
 
         处理流程:
             Step 1: 获取样本
-                    sample = self.data[idx]
+                    根据索引从数据集中获取单个样本
 
             Step 2: 格式化 prompt
-                    prompt = self._format_prompt(sample)
+                    调用 _format_prompt 方法将样本格式化为 prompt 字符串
 
             Step 3: 获取回复文本
-                    chosen_text = self._get_chosen_text(sample)
-                    rejected_text = self._get_rejected_text(sample)
+                    调用 _get_chosen_text 获取偏好回复文本
+                    调用 _get_rejected_text 获取非偏好回复文本
 
             Step 4: 编码 prompt
-                    prompt_tokens = tokenizer.encode(prompt, add_special_tokens=False)
-                    # 截断到 max_prompt_length
+                    使用 tokenizer 编码 prompt 字符串
+                    不添加特殊 token
+                    如果长度超过 max_prompt_length 则进行截断
 
             Step 5: 编码回复
-                    chosen_tokens = tokenizer.encode(chosen_text, add_special_tokens=False)
-                    rejected_tokens = tokenizer.encode(rejected_text, add_special_tokens=False)
-
-                    # 添加 EOS
-                    chosen_tokens += [tokenizer.eos_token_id]
-                    rejected_tokens += [tokenizer.eos_token_id]
+                    分别编码 chosen_text 和 rejected_text
+                    不添加特殊 token
+                    在每个回复 token 列表末尾添加 EOS token
 
             Step 6: 拼接序列
-                    chosen_full = prompt_tokens + chosen_tokens
-                    rejected_full = prompt_tokens + rejected_tokens
+                    将 prompt tokens 与 chosen tokens 拼接形成完整 chosen 序列
+                    将 prompt tokens 与 rejected tokens 拼接形成完整 rejected 序列
 
             Step 7: 检查长度并截断
-                    if len(chosen_full) > max_length:
-                        chosen_full = chosen_full[:max_length]
-                    if len(rejected_full) > max_length:
-                        rejected_full = rejected_full[:max_length]
+                    如果 chosen 序列长度超过 max_length，截断到 max_length
+                    如果 rejected 序列长度超过 max_length，截断到 max_length
 
             Step 8: 创建 labels
-                    # 只对回复部分计算损失
-                    prompt_len = len(prompt_tokens)
-
-                    chosen_labels = [-100] * prompt_len + chosen_tokens
-                    chosen_labels[:prompt_len] = [-100]  # mask prompt
-
-                    rejected_labels = [-100] * prompt_len + rejected_tokens
-                    rejected_labels[:prompt_len] = [-100]  # mask prompt
+                    只对回复部分计算损失，prompt 部分被 mask
+                    创建 chosen_labels: prompt 部分设为 -100，回复部分为对应 token ID
+                    创建 rejected_labels: prompt 部分设为 -100，回复部分为对应 token ID
 
             Step 9: 转换为张量并返回
+                    将所有序列和 mask 转换为张量
+                    封装为字典返回
         """
         pass
 

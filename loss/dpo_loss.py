@@ -112,51 +112,44 @@ class DPOLoss(nn.Module):
         计算步骤:
 
             Step 1: 计算对数比率 (log ratio)
-                    策略模型相对于参考模型的对数概率比
-
-                    chosen_logratios = policy_chosen_logps - reference_chosen_logps
-                    rejected_logratios = policy_rejected_logps - reference_rejected_logps
-
-                    形状: [batch_size]
+                    计算策略模型相对于参考模型的对数概率比
+                    对于偏好回复和非偏好回复分别计算:
+                    - 偏好对数比率 = 策略模型对偏好的对数概率 - 参考模型对偏好的对数概率
+                    - 非偏好对数比率 = 策略模型对非偏好的对数概率 - 参考模型对非偏好的对数概率
+                    这表示策略模型相对于参考模型对某个回复的偏好程度
 
             Step 2: 计算 DPO 对数几率 (logits)
-                    logits = beta * (chosen_logratios - rejected_logratios)
-                           = beta * (policy_chosen_logps - reference_chosen_logps
-                                    - policy_rejected_logps + reference_rejected_logps)
+                    计算偏好对数比率与非偏好对数率之差
+                    然后乘以温度系数 beta 进行缩放
+                    数学公式: logits = beta * (偏好对数比率 - 非偏好对数比率)
+                    如果策略模型给偏好回复的相对概率更高，这个值为正
 
-                    形状: [batch_size]
+            Step 3: 计算 DPO 损失
+                    DPO 损失是负对数 Sigmoid 函数值
+                    数学上这对应于偏好分类的负对数似然
+                    当 logits 越大 (偏好明显)，损失越小
 
-                    直观: 如果策略模型给偏好回复的相对概率更高，logits 为正
-
-            Step 3: 计算损失
-                    # DPO 损失是负对数似然 (偏好 > 非偏好)
-                    loss = -F.logsigmoid(logits)
-
-                    如果 label_smoothing > 0:
-                        # 标签平滑: 不完全相信标签
-                        loss = (1 - smoothing) * loss + smoothing * F.logsigmoid(-logits)
-
-                    形状: [batch_size]
+                    如果启用标签平滑:
+                    - 不完全相信 hard label
+                    - 将标准损失与翻转标签的损失进行插值
+                    - 这可以防止模型过于自信，提高泛化能力
 
             Step 4: 聚合批次损失
-                    loss = loss.mean()
+                    对批次中所有样本的损失求平均，得到标量损失
 
             Step 5: 计算奖励用于监控 (可选)
-                    chosen_rewards = beta * chosen_logratios
-                    rejected_rewards = beta * rejected_logratios
-                    reward_margin = chosen_rewards - rejected_rewards
+                    将对数比率乘以 beta 得到隐式奖励
+                    - 偏好奖励 = beta * 偏好对数比率
+                    - 非偏好奖励 = beta * 非偏好对数比率
+                    - 奖励差距 = 偏好奖励 - 非偏好奖励
+                    这些值用于监控训练进度，不直接参与梯度计算
 
             Step 6: 返回结果
-                    return {
-                        "loss": loss,
-                        "chosen_rewards": chosen_rewards.mean(),
-                        "rejected_rewards": rejected_rewards.mean(),
-                        "reward_margin": reward_margin.mean(),
-                    }
+                    返回包含损失和监控指标的字典
 
         数值稳定性:
-            - 使用 log probabilities 避免下溢
-            - 使用 logsigmoid 而不是 log(sigmoid(x)) 更稳定
+            - 直接使用对数概率而不是概率，避免数值下溢
+            - 使用稳定的对数 Sigmoid 计算，而不是先 Sigmoid 再取对数
         """
         pass
 
@@ -178,34 +171,33 @@ class DPOLoss(nn.Module):
 
         计算步骤:
             Step 1: 计算每个位置的 log 概率
-                    log_probs = F.log_softmax(logits, dim=-1)
-                    形状: [batch, seq, vocab]
+                    对 logits 应用 log-softmax 函数，沿词表维度
+                    这将对数几率转换为对数概率，数值更稳定
+                    结果形状: [batch, seq, vocab]
 
             Step 2: 收集目标 token 的 log 概率
-                    # 使用 gather 获取对应位置的 log 概率
-                    token_log_probs = log_probs.gather(
-                        dim=-1,
-                        index=labels.unsqueeze(-1)
-                    ).squeeze(-1)
-                    形状: [batch, seq]
+                    对于每个序列位置，从 log 概率分布中提取目标 token 对应的对数概率
+                    使用标签作为索引，从词表维度中选取对应位置的值
+                    结果形状: [batch, seq]
 
             Step 3: 创建有效位置掩码
-                    loss_mask = (labels != -100).float()
-                    形状: [batch, seq]
+                    创建二进制掩码，标记哪些位置是有效的 (标签不为 -100)
+                    -100 通常表示 padding 位置，应该被忽略
+                    掩码形状: [batch, seq]
 
             Step 4: 应用掩码并求和
-                    # 只计算有效位置的 log 概率
-                    masked_log_probs = token_log_probs * loss_mask
-                    sequence_log_probs = masked_log_probs.sum(dim=-1)
-                    形状: [batch]
+                    将目标 token 的对数概率与掩码相乘，padding 位置变为 0
+                    沿序列维度求和，得到每个样本的总对数概率
+                    结果形状: [batch]
 
             Step 5: 计算平均 (按有效 token 数)
-                    valid_lengths = loss_mask.sum(dim=-1)
-                    average_log_probs = sequence_log_probs / valid_lengths
-                    形状: [batch]
+                    计算每个样本的有效 token 数量 (掩码之和)
+                    将总对数概率除以有效 token 数，得到平均对数概率
+                    这确保了不同长度序列的可比性
+                    结果形状: [batch]
 
             Step 6: 返回
-                    return average_log_probs
+                    返回每个样本的平均对数概率
         """
         pass
 
@@ -253,10 +245,17 @@ class IPO_Loss(nn.Module):
         """
         计算 IPO 损失。
 
-        公式:
-            chosen_ratio = policy_chosen_logps - reference_chosen_logps
-            rejected_ratio = policy_rejected_logps - reference_rejected_logps
-            logits = chosen_ratio - rejected_ratio
-            loss = (logits - 1/tau)^2
+        计算流程:
+            Step 1: 计算对数概率比率
+                    分别计算偏好回复和非偏好回复的策略模型与参考模型的对数概率差
+
+            Step 2: 计算 logits
+                    计算偏好对数比率与非偏好对数比率之差
+                    这表示策略模型对偏好回复相对于非偏好回复的偏好程度
+
+            Step 3: 计算 IPO 损失
+                    使用均方误差损失，目标是让 logits 接近 1/tau
+                    数学公式: loss = (logits - 1/τ)²
+                    这迫使模型保持适中的置信度，不像 DPO 那样追求极端的 margin
         """
         pass

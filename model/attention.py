@@ -87,50 +87,59 @@ class MultiHeadAttention(nn.Module):
 
         计算流程:
             Step 1: 线性投影得到 Q、K、V
-                    Q = hidden_states @ W_q^T  -> [batch, seq, hidden]
-                    K = hidden_states @ W_k^T  -> [batch, seq, hidden]
-                    V = hidden_states @ W_v^T  -> [batch, seq, hidden]
+                    使用三个独立的线性变换将隐藏状态投影到 Query、Key、Value 空间
+                    每个投影将 [batch, seq, hidden] 映射到 [batch, seq, hidden]
+                    这些投影矩阵是可学习的参数
 
-            Step 2:  reshape 为多头形式
-                    [batch, seq, hidden] -> [batch, num_heads, seq, head_dim]
+            Step 2: reshape 为多头形式
+                    将隐藏维度分割成 num_heads 个头，每个头维度为 head_dim
+                    形状变换: [batch, seq, hidden] -> [batch, num_heads, seq, head_dim]
                     其中 head_dim = hidden_size // num_heads
 
             Step 3: 应用 RoPE (如果使用)
-                    Q_rot, K_rot = RoPE(Q, K, position_ids)
+                    如果配置使用旋转位置编码，对 Q 和 K 应用 RoPE
+                    这通过旋转矩阵注入位置信息
 
             Step 4: 处理 KV 缓存 (如果提供)
-                    将 past_key_value 与当前 K、V 拼接
-                    [batch, num_heads, cache_len + seq_len, head_dim]
+                    在生成阶段，将之前缓存的 Key 和 Value 与当前的拼接
+                    沿序列长度维度拼接: [cache_len] + [seq_len] = [total_len]
+                    形状: [batch, num_heads, cache_len + seq_len, head_dim]
 
             Step 5: 计算注意力分数
-                    scores = Q @ K^T / sqrt(head_dim)
+                    使用缩放点积计算注意力分数:
+                    数学公式: scores = (Q · K^T) / sqrt(d_k)
+                    其中 d_k 是每个头的维度
                     形状: [batch, num_heads, seq_len, total_len]
 
             Step 6: 应用注意力掩码
-                    scores = scores + attention_mask (mask 中 pad 位置为 -inf)
+                    将注意力掩码加到分数上，掩码中无效位置为负无穷
+                    这样 softmax 后这些位置的权重会变为零
 
             Step 7: softmax 得到注意力权重
-                    attn_weights = softmax(scores, dim=-1)
-                    形状: [batch, num_heads, seq_len, total_len]
+                    对分数应用 softmax 函数，沿最后一个维度 (key 维度) 归一化
+                    将分数转换为概率分布，所有权重之和为 1
 
             Step 8: 应用 dropout (训练时)
-                    attn_weights = dropout(attn_weights)
+                    在训练阶段，随机将部分注意力权重置零以防止过拟合
+                    推理阶段不使用 dropout
 
             Step 9: 计算注意力输出
-                    attn_output = attn_weights @ V
+                    使用注意力权重对 Value 进行加权求和:
+                    数学公式: output = weights · V
                     形状: [batch, num_heads, seq_len, head_dim]
 
             Step 10: reshape 回原始维度
+                    将多头结果合并回隐藏维度:
                     [batch, num_heads, seq_len, head_dim] -> [batch, seq_len, hidden]
 
             Step 11: 输出投影
-                    output = attn_output @ W_o^T
+                    使用输出投影矩阵将结果映射回隐藏维度
                     形状: [batch, seq_len, hidden_size]
 
         边界条件:
             - 训练阶段 use_cache=False，past_key_value=None
             - 生成阶段 use_cache=True，需要提供 past_key_value
-            - causal mask 通过 attention_mask 实现，上三角为 -inf
+            - causal mask 通过 attention_mask 实现，上三角为负无穷，防止看到未来信息
         """
         pass
 
@@ -206,20 +215,26 @@ class GroupedQueryAttention(nn.Module):
 
         操作步骤:
             Step 1: 扩展维度
-                    x = x[:, :, None, :, :]  # [batch, num_kv_heads, 1, seq, head_dim]
+                    在 KV 头维度之后插入一个新维度，用于后续复制
+                    形状变化: [batch, num_kv_heads, seq, head_dim] -
+                              [batch, num_kv_heads, 1, seq, head_dim]
 
             Step 2: 复制
-                    x = x.expand(-1, -1, num_groups, -1, -1)
-                    # [batch, num_kv_heads, num_groups, seq, head_dim]
+                    沿新插入的维度将 KV 头复制 num_groups 次
+                    这样每个原始 KV 头会被复制成 num_groups 个副本
+                    形状变化: [batch, num_kv_heads, 1, seq, head_dim] -
+                              [batch, num_kv_heads, num_groups, seq, head_dim]
 
             Step 3: reshape
-                    x = x.reshape(batch, num_kv_heads * num_groups, seq, head_dim)
-                    # [batch, num_attention_heads, seq, head_dim]
+                    合并 KV 头维度和复制维度，使总头数等于注意力头数
+                    形状变化: [batch, num_kv_heads, num_groups, seq, head_dim] -
+                              [batch, num_attention_heads, seq, head_dim]
+                    其中 num_attention_heads = num_kv_heads * num_groups
 
         示例:
             输入:  [batch, 4, seq, 64]  (4 个 KV 头)
-            num_groups = 2
-            输出: [batch, 8, seq, 64]  (8 个 Q 头)
+            num_groups = 2 (表示每个 KV 头被 2 个 Q 头共享)
+            输出: [batch, 8, seq, 64]  (8 个 Q 头，每个 Q 头对应一个复制的 KV 头)
         """
         pass
 
@@ -236,45 +251,46 @@ class GroupedQueryAttention(nn.Module):
 
         Args 和 Returns: 同 MultiHeadAttention
 
-        计算流程 (与 MHA 主要区别在于 Step 2 和 Step 4):
+        计算流程 (与 MHA 主要区别在于 Step 2 和 Step 5):
 
             Step 1: 线性投影
-                    Q = hidden_states @ W_q^T  -> [batch, seq, hidden]
-                    K = hidden_states @ W_k^T  -> [batch, seq, num_kv_heads * head_dim]
-                    V = hidden_states @ W_v^T  -> [batch, seq, num_kv_heads * head_dim]
+                    Query 投影到完整隐藏维度 [batch, seq, hidden]
+                    Key 和 Value 投影到缩减维度 [batch, seq, num_kv_heads * head_dim]
+                    注意 K/V 的投影输出维度小于 Q，这是 GQA 的核心
 
-            Step 2: reshape
-                    Q: [batch, seq, hidden] -> [batch, num_heads, seq, head_dim]
-                    K: [batch, seq, num_kv_heads * head_dim]
-                       -> [batch, num_kv_heads, seq, head_dim]
-                    V: 同 K
+            Step 2: reshape 为多头形式
+                    Query: [batch, seq, hidden] -> [batch, num_heads, seq, head_dim]
+                    Key/Value: [batch, seq, num_kv_heads * head_dim] ->
+                               [batch, num_kv_heads, seq, head_dim]
+                    注意 K/V 只有 num_kv_heads 个头，而 Q 有 num_heads 个
 
             Step 3: 应用 RoPE
-                    Q_rot, K_rot = RoPE(Q, K, position_ids)
+                    如果配置使用旋转位置编码，对 Q 和 K 应用 RoPE
 
             Step 4: 处理 KV 缓存 (如果提供)
-                    将 past_key_value 与当前 K、V 拼接
-                    K_cat: [batch, num_kv_heads, cache_len + seq_len, head_dim]
+                    在生成阶段，将之前缓存的 Key 和 Value 与当前的拼接
+                    沿序列长度维度拼接
+                    形状: [batch, num_kv_heads, cache_len + seq_len, head_dim]
 
             Step 5: 复制 KV 以匹配 Q 头数 (GQA 关键步骤)
-                    K_rep = repeat_kv(K_cat, num_groups)
-                    V_rep = repeat_kv(V_cat, num_groups)
-                    形状: [batch, num_heads, total_len, head_dim]
+                    由于 K/V 头数少于 Q 头数，需要将每个 K/V 头复制 num_groups 次
+                    num_groups = num_attention_heads // num_key_value_heads
+                    复制后 K/V 形状: [batch, num_heads, total_len, head_dim]
 
             Step 6-9: 注意力计算 (同 MHA)
-                    scores = Q @ K_rep^T / sqrt(head_dim)
-                    scores = scores + attention_mask
-                    attn_weights = softmax(scores)
-                    attn_weights = dropout(attn_weights)
-                    attn_output = attn_weights @ V_rep
-                    形状: [batch, num_heads, seq_len, head_dim]
+                    计算缩放点积注意力分数: scores = (Q · K^T) / sqrt(d_k)
+                    应用注意力掩码
+                    使用 softmax 归一化得到注意力权重
+                    应用 dropout (训练时)
+                    计算加权输出: output = weights · V
 
             Step 10-11: reshape 和输出投影 (同 MHA)
-                    output = attn_output @ W_o^T
+                    合并多头结果并应用输出投影
 
         显存优化:
             KV 缓存只存储 num_kv_heads 个头，而不是 num_heads 个
+            这显著减少了自回归生成时的显存占用
             当 num_kv_heads = 1 时，退化为 MQA (Multi-Query Attention)
-            当 num_kv_heads = num_heads 时，退化为 MHA
+            当 num_kv_heads = num_heads 时，退化为标准 MHA
         """
         pass

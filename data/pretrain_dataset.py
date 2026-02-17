@@ -87,19 +87,21 @@ class PretrainDataset(BaseDataset):
 
         流程:
             Step 1: 逐个编码文本
-                    for text in texts:
-                        tokens = tokenizer.encode(text, add_special_tokens=False)
-                        # 添加 EOS token
-                        tokens.append(tokenizer.eos_token_id)
-                        buffer.extend(tokens)
+                    遍历所有文本，对每个文本进行编码
+                    编码时不添加特殊 token
+                    在每个文本编码结果后添加 EOS token
+                    将所有 token 扩展到一个缓冲区中
 
             Step 2: 切分成长度为 max_length 的块
-                    while len(buffer) >= max_length:
-                        chunk = buffer[:max_length]
-                        examples.append(chunk)
-                        buffer = buffer[max_length:]  # 或 stride 滑动
+                    当缓冲区长度大于等于 max_length 时循环:
+                        取出前 max_length 个 token 作为一个样本
+                        将取出的样本添加到结果列表
+                        更新缓冲区，移除已取出的部分
+                        可以选择使用滑动窗口 stride 保留部分重叠内容
 
-            Step 3: 处理剩余部分 (可选: 丢弃或保留用于下一个 batch)
+            Step 3: 处理剩余部分
+                    可以选择丢弃不完整的最后一块
+                    或者保留用于下一个 batch 的拼接
 
         注意:
             - 添加 EOS token 标记文本边界
@@ -121,13 +123,14 @@ class PretrainDataset(BaseDataset):
                 - labels: [max_length]，预测目标
 
         标签处理:
-            labels = input_ids.clone()
-            # 因果掩码: 每个位置预测下一个 token
-            # labels[:-1] = input_ids[1:]
-            # labels[-1] = -100  # 最后一个 token 无目标
+            创建 input_ids 的副本作为 labels
+            因果掩码机制: 每个位置预测下一个 token
+            将 labels 整体向左移动一位
+            最后一个位置设为 -100 表示无预测目标
 
-        等价于:
-            labels = torch.cat([input_ids[1:], torch.tensor([-100])])
+        等价操作:
+            将 input_ids 从第二个位置开始的部分与 -100 拼接
+            形成与 input_ids 长度相同的 labels 序列
         """
         pass
 

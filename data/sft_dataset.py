@@ -148,6 +148,12 @@ class SFTDataset(BaseDataset):
             labels:     [-100, -100, -100, -100, T5, T6, T7]
                                       ↑ prompt结束 ↑
 
+        处理流程:
+            创建一个与 input_ids 长度相同的列表
+            前 prompt_len 个位置设为 -100 (忽略标记)
+            剩余位置设为对应 input_ids 的值
+            这样只有 response 部分参与损失计算
+
         注意:
             - prompt_len 需要准确计算，不能简单按字符数
             - 需要使用 tokenizer 预先编码 prompt 来确定长度
@@ -169,25 +175,31 @@ class SFTDataset(BaseDataset):
 
         流程:
             Step 1: 获取原始样本并格式化
-                    sample = self.data[idx]
-                    formatted = self._format_sample(sample)
+                    根据索引从数据集中获取样本
+                    调用 _format_sample 方法将样本格式化为 prompt 和 completion
 
             Step 2: 编码 prompt 和 completion
-                    prompt_ids = tokenizer.encode(formatted["prompt"])
-                    completion_ids = tokenizer.encode(formatted["completion"])
+                    使用 tokenizer 分别编码格式化后的 prompt 和 completion
+                    获取对应的 token ID 列表
 
             Step 3: 拼接完整序列
-                    input_ids = prompt_ids + completion_ids + [eos_token_id]
+                    将 prompt token IDs、completion token IDs 和 EOS token ID 拼接
+                    形成完整的 input_ids 序列
 
             Step 4: 检查长度并截断
-                    if len(input_ids) > max_length:
-                        # 优先截断 prompt，保留 completion
-                        # 或整体截断到 max_length
+                    如果序列长度超过 max_length:
+                        优先截断 prompt 部分以保留 completion
+                        或者整体截断到 max_length
+                    确保截断后序列不为空
 
             Step 5: 创建 labels
-                    labels = self._create_labels(input_ids, len(prompt_ids))
+                    调用 _create_labels 方法创建 labels
+                    传入 input_ids 和 prompt 的长度
+                    prompt 部分会被 mask 为 -100
 
             Step 6: 转换为张量并返回
+                    将 input_ids、attention_mask 和 labels 转换为张量
+                    封装为字典返回
         """
         pass
 

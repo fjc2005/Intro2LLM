@@ -102,23 +102,20 @@ class GRPOTrainer(Trainer):
 
         流程:
             Step 1: 重复 prompts
-                    prompts_repeated = prompts.repeat_interleave(num_generations, dim=0)
-                    形状: [batch_size * num_generations, prompt_len]
+                    将 prompts 在 batch 维度重复 num_generations 次
+                    重复后的形状为 [batch_size * num_generations, prompt_len]
 
             Step 2: 生成回复
-                    with torch.no_grad():
-                        responses = model.generate(
-                            prompts_repeated,
-                            max_new_tokens=max_new_tokens,
-                            temperature=temperature,
-                            do_sample=True
-                        )
-                    形状: [batch_size * num_generations, prompt_len + response_len]
+                    在无梯度环境下调用模型的 generate 方法
+                    传入重复后的 prompts、最大生成长度和温度参数
+                    启用采样以获得多样化的回复
+                    生成的回复形状为 [batch_size * num_generations, prompt_len + response_len]
 
             Step 3: reshape
-                    responses = responses.view(batch_size, num_generations, -1)
+                    将生成的回复 reshape 为三维张量
+                    形状变为 [batch_size, num_generations, total_len]
 
-            Step 4: 返回
+            Step 4: 返回 reshape 后的回复
         """
         pass
 
@@ -180,38 +177,34 @@ class GRPOTrainer(Trainer):
         训练流程 (离线版本，使用预生成数据):
 
             Step 1: 获取 batch
-                    prompts = batch["prompts"]  # [batch, prompt_len]
-                    responses = batch["responses"]  # [batch, num_samples, seq_len]
-                    rewards = batch["rewards"]  # [batch, num_samples]
+                    从批次中提取 prompts、responses 和 rewards
+                    prompts 形状为 [batch, prompt_len]
+                    responses 形状为 [batch, num_samples, seq_len]
+                    rewards 形状为 [batch, num_samples]
 
             Step 2: 计算策略模型的 log probs
-                    # 对每个样本计算
-                    policy_log_probs = self.compute_log_probs(
-                        self.model, prompts_and_responses
-                    )
-                    # reshape 为 [batch, num_samples]
+                    对每个样本调用 compute_log_probs 方法
+                    传入策略模型和 prompt 与 response 的拼接序列
+                    将结果 reshape 为 [batch, num_samples]
 
             Step 3: 计算参考模型的 log probs
-                    with torch.no_grad():
-                        ref_log_probs = self.compute_log_probs(
-                            self.ref_model, prompts_and_responses
-                        )
+                    在无梯度环境下调用 compute_log_probs
+                    传入参考模型和相同的序列
+                    获取参考模型的对数概率
 
             Step 4: 计算 GRPO 损失
-                    loss_dict = self.grpo_loss(
-                        policy_log_probs=policy_log_probs,
-                        reference_log_probs=ref_log_probs,
-                        rewards=rewards,
-                    )
+                    调用 GRPO loss 模块计算损失
+                    传入策略对数概率、参考对数概率和奖励值
+                    获取包含损失值的字典
 
             Step 5: 反向传播和优化
-                    loss = loss_dict["loss"]
-                    loss.backward()
-                    self.optimizer.step()
-                    self.lr_scheduler.step()
-                    self.optimizer.zero_grad()
+                    从损失字典中提取损失值
+                    执行反向传播计算梯度
+                    执行优化器步骤更新参数
+                    更新学习率调度器
+                    清空梯度
 
-            Step 6: 返回指标
+            Step 6: 返回训练指标
 
         在线版本 (训练时生成):
             - 在 Step 1 使用 generate_responses() 实时生成

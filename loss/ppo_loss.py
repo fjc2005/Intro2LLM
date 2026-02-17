@@ -92,14 +92,15 @@ class PPOLoss(nn.Module):
             (policy_loss, metrics)
 
         计算公式:
-            ratio = exp(log_probs - old_log_probs)
-            # 或 ratio = π_new(a|s) / π_old(a|s)
+            首先计算新旧策略的重要性采样比率:
+                ratio = exp(log_probs - old_log_probs) = π_new(a|s) / π_old(a|s)
 
-            surr1 = ratio * advantages
-            surr2 = clip(ratio, 1-ε, 1+ε) * advantages
+            计算两个替代目标:
+                surr1 = ratio * advantages
+                surr2 = clip(ratio, 1-ε, 1+ε) * advantages
 
-            # 取 min 防止策略更新过大
-            policy_loss = -mean(min(surr1, surr2))
+            取两者最小值防止策略更新过大，并求平均:
+                policy_loss = -mean(min(surr1, surr2))
 
         为什么要裁剪:
             - 防止策略更新过大导致训练不稳定
@@ -126,19 +127,19 @@ class PPOLoss(nn.Module):
             价值损失
 
         计算公式:
-            if clip_values:
-                # PPO-clip 风格的价值裁剪
-                value_clipped = old_values + clip(
-                    values - old_values,
-                    -value_clip_range,
-                    value_clip_range
-                )
-                value_loss1 = (values - returns)^2
-                value_loss2 = (value_clipped - returns)^2
-                value_loss = 0.5 * mean(max(value_loss1, value_loss2))
-            else:
-                # MSE 损失
-                value_loss = 0.5 * mean((values - returns)^2)
+            如果使用价值裁剪 (PPO-clip 风格):
+                首先对价值估计进行裁剪，限制其与旧价值的偏差范围:
+                    value_clipped = old_values + clip(values - old_values, -range, +range)
+
+                计算两个价值损失:
+                    value_loss1 = (values - returns)^2
+                    value_loss2 = (value_clipped - returns)^2
+
+                取两者最大值并求平均:
+                    value_loss = 0.5 * mean(max(value_loss1, value_loss2))
+            否则:
+                使用标准的均方误差损失:
+                    value_loss = 0.5 * mean((values - returns)^2)
         """
         pass
 
@@ -156,8 +157,10 @@ class PPOLoss(nn.Module):
             平均熵，标量
 
         熵的计算:
-            probs = softmax(logits)
-            entropy = -sum(probs * log(probs), dim=-1)
+            首先使用 softmax 函数将 logits 转换为概率分布
+            然后计算信息熵:
+                entropy = -sum(probs * log(probs), dim=-1)
+            形状: [batch_size, seq_len]
 
         作用:
             - 鼓励策略保持随机性，探索更多可能
@@ -182,8 +185,11 @@ class PPOLoss(nn.Module):
             KL 散度，标量
 
         KL 估计:
-            KL(π || π_ref) = E_π[log π(a|s) - log π_ref(a|s)]
-                           = mean(log_probs - ref_log_probs)
+            使用蒙特卡洛估计计算 KL 散度:
+                KL(π || π_ref) = E_π[log π(a|s) - log π_ref(a|s)]
+
+            实际计算为对数概率差的均值:
+                kl_div = mean(log_probs - ref_log_probs)
 
         注意: 这是 KL 散度的估计，不是精确值
         """
@@ -305,19 +311,26 @@ class GAE:
 
         计算步骤:
             Step 1: 计算 TD 误差
-                    delta_t = r_t + gamma * V(s_{t+1}) * (1 - done_t) - V(s_t)
+                    对每个时间步计算时序差分误差:
+                        delta_t = r_t + gamma * V(s_{t+1}) * (1 - done_t) - V(s_t)
+                    其中 done_t 用于处理 episode 终止的情况
 
             Step 2: 反向计算 GAE
-                    advantages = []
-                    gae = 0
-                    for t in reversed(range(seq_len)):
-                        gae = delta_t + gamma * lambda * (1 - done_t) * gae
-                        advantages.insert(0, gae)
+                    从序列末尾开始反向迭代计算优势:
+                        初始化 gae = 0
+                        对每个时间步 t (从后往前):
+                            gae = delta_t + gamma * lambda * (1 - done_t) * gae
+                            将 gae 插入优势列表头部
+
+                    这实现了指数加权的优势估计:
+                        A_t = sum_{l=0}^{∞} (gamma * lambda)^l * delta_{t+l}
 
             Step 3: 计算回报
-                    returns = advantages + values
+                    使用优势与价值的和作为回报估计:
+                        returns = advantages + values
 
             Step 4: 归一化优势 (可选)
-                    advantages = (advantages - mean) / (std + eps)
+                    对优势进行 Z-score 归一化以提高训练稳定性:
+                        advantages = (advantages - mean) / (std + eps)
         """
         pass

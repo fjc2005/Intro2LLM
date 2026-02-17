@@ -107,36 +107,33 @@ class CosineAnnealingWarmRestarts(_LRScheduler):
 
         计算步骤:
             Step 1: 确定当前周期信息
-                    if not hasattr(self, '_last_lr'):
-                        # 初始化
-                        return self.base_lrs
+                    如果是第一次调用，直接返回初始学习率 base_lrs
 
             Step 2: 计算 t_cur (当前周期内的位置)
-                    if self.last_epoch >= self.T_0:
-                        if self.T_mult == 1:
-                            # 固定周期长度
-                            t_cur = self.last_epoch % self.T_0
-                        else:
-                            # 增长周期长度
-                            n = int(math.log(
-                                (self.last_epoch / self.T_0) * (self.T_mult - 1) + 1,
-                                self.T_mult
-                            ))
-                            t_cur = self.last_epoch - self.T_0 * (self.T_mult ** n - 1) / (self.T_mult - 1)
-                            T_i = self.T_0 * self.T_mult ** n
-                    else:
-                        t_cur = self.last_epoch
-                        T_i = self.T_0
+                    如果当前 epoch 超过第一个周期:
+                        如果周期增长因子为 1 (固定周期长度):
+                            使用取模运算计算周期内位置
+                        否则 (周期长度增长):
+                            计算当前属于第几个周期 n
+                            计算当前周期内的位置 t_cur
+                            计算当前周期长度 T_i
+                    否则 (仍在第一个周期内):
+                        t_cur 等于当前 epoch
+                        T_i 等于 T_0
 
             Step 3: 计算余弦衰减因子
-                    cosine_factor = 0.5 * (1 + math.cos(math.pi * t_cur / T_i))
+                    使用余弦函数计算衰减程度:
+                        cosine_factor = 0.5 * (1 + cos(π * t_cur / T_i))
+                    当 t_cur = 0 时，cosine_factor = 1 (最大学习率)
+                    当 t_cur = T_i 时，cosine_factor = 0 (最小学习率)
 
             Step 4: 计算学习率
-                    lr = [self.eta_min + (base_lr - self.eta_min) * cosine_factor
-                          for base_lr in self.base_lrs]
+                    对每个参数组，根据余弦因子插值计算学习率:
+                        lr = η_min + (base_lr - η_min) * cosine_factor
+                    这实现了从 base_lr 到 η_min 的余弦衰减
 
             Step 5: 返回
-                    return lr
+                    返回每个参数组的学习率列表
         """
         pass
 
@@ -215,24 +212,28 @@ class WarmupCosineScheduler(_LRScheduler):
         """
         计算当前学习率。
 
-        计算公式:
+        计算逻辑:
 
-        if current_step < num_warmup_steps:
-            # Warmup 阶段: 线性增加
-            lr = base_lr * (current_step / num_warmup_steps)
+        根据当前训练步数所处的阶段，使用不同的学习率计算策略:
 
-        elif current_step < num_warmup_steps + num_stable_steps:
-            # 稳定阶段: 恒定
-            lr = base_lr
+        Warmup 阶段 (current_step < num_warmup_steps):
+            学习率从 0 线性增加到初始学习率:
+                lr = base_lr * (current_step / num_warmup_steps)
 
-        else:
-            # 余弦衰减阶段
-            progress = (current_step - num_warmup_steps - num_stable_steps) / \
-                      (num_training_steps - num_warmup_steps - num_stable_steps)
+        稳定阶段 (current_step < num_warmup_steps + num_stable_steps):
+            保持恒定的初始学习率:
+                lr = base_lr
 
-            # 余弦衰减
-            lr = base_lr * (min_lr_ratio + (1 - min_lr_ratio) *
-                           0.5 * (1 + cos(pi * num_cycles * 2 * progress)))
+        余弦衰减阶段 (其他):
+            首先计算衰减进度 (0 到 1 之间):
+                progress = (current_step - warmup_steps - stable_steps) /
+                          (total_steps - warmup_steps - stable_steps)
+
+            然后应用余弦衰减公式:
+                cosine_factor = 0.5 * (1 + cos(π * num_cycles * 2 * progress))
+                lr = base_lr * (min_lr_ratio + (1 - min_lr_ratio) * cosine_factor)
+
+            这实现了从 base_lr 到 base_lr * min_lr_ratio 的余弦衰减
 
         Returns:
             每个参数组的学习率列表
@@ -286,12 +287,21 @@ class WarmupLinearScheduler(_LRScheduler):
         """
         计算当前学习率。
 
-        公式:
-            if step < warmup:
-                lr = base_lr * (step / warmup)
-            else:
-                progress = (step - warmup) / (total - warmup)
-                lr = base_lr * (min_lr_ratio + (1 - min_lr_ratio) * (1 - progress))
+        计算逻辑:
+            根据当前步数所处阶段计算学习率:
+
+            Warmup 阶段 (step < warmup):
+                学习率从 0 线性增加到初始学习率:
+                    lr = base_lr * (step / warmup)
+
+            线性衰减阶段 (其他):
+                首先计算衰减进度 (0 到 1 之间):
+                    progress = (step - warmup) / (total - warmup)
+
+                然后应用线性衰减:
+                    lr = base_lr * (min_lr_ratio + (1 - min_lr_ratio) * (1 - progress))
+
+                这实现了从 base_lr 到 base_lr * min_lr_ratio 的线性衰减
         """
         pass
 

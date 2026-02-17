@@ -99,55 +99,49 @@ class GRPOLoss(nn.Module):
         计算步骤:
 
             Step 1: 计算组内相对优势 (Relative Advantage)
-                    # 对每个 prompt (每行) 计算
-                    mean_rewards = rewards.mean(dim=-1, keepdim=True)
-                    std_rewards = rewards.std(dim=-1, keepdim=True)
+                    对每个 prompt (每行) 计算奖励的均值和标准差
+                    形状变化: [batch_size, num_samples] -> [batch_size, 1]
 
-                    # 归一化奖励作为优势
-                    advantages = (rewards - mean_rewards) / (std_rewards + 1e-8)
+                    使用 Z-score 归一化公式:
+                        advantages = (rewards - mean) / (std + eps)
+
                     形状: [batch_size, num_samples]
-
                     直观: 高于平均的回复获得正优势，低于平均的获得负优势
 
             Step 2: 计算比率 (如果有参考模型)
-                    if reference_log_probs is not None:
-                        log_ratios = policy_log_probs - reference_log_probs
-                        ratios = torch.exp(log_ratios)
+                    如果提供了参考模型的对数概率:
+                        计算重要性采样比率:
+                            ratio = exp(policy_log_probs - reference_log_probs)
                         形状: [batch_size, num_samples]
 
-                        # 使用 PPO 式裁剪
-                        clipped_ratios = torch.clamp(ratios, 1 - epsilon, 1 + epsilon)
+                        使用 PPO 式裁剪，将比率限制在 [1 - epsilon, 1 + epsilon] 范围内
 
-                        # 取 min 保证策略不会偏离太远
-                        policy_loss = -torch.min(
-                            advantages * ratios,
-                            advantages * clipped_ratios
-                        )
-                    else:
-                        # 无参考模型，直接使用对数概率加权
-                        policy_loss = -advantages * policy_log_probs
+                        计算裁剪后的策略损失，取未裁剪和裁剪后两者的最小值:
+                            policy_loss = -min(advantages * ratio, advantages * clipped_ratio)
+                    否则:
+                        无参考模型，直接使用对数概率加权:
+                            policy_loss = -advantages * policy_log_probs
 
             Step 3: 计算 KL 惩罚 (如果有参考模型)
-                    if reference_log_probs is not None:
-                        # KL(P || Q) = E_P[log P - log Q]
-                        kl_div = (policy_log_probs - reference_log_probs).detach()
-                        # 在 loss 中添加 KL 惩罚
-                        loss = policy_loss.mean() + beta * kl_div.mean()
-                    else:
-                        loss = policy_loss.mean()
+                    如果提供了参考模型的对数概率:
+                        使用 KL 散度的估计公式:
+                            KL(P || Q) = E_P[log P - log Q]
+                        对计算出的 KL 项进行梯度截断 (detach)
+
+                        总损失为策略损失与 KL 惩罚的加权和:
+                            loss = mean(policy_loss) + beta * mean(kl_div)
+                    否则:
+                        总损失为策略损失的均值
 
             Step 4: 收集指标
-                    metrics = {
-                        "loss": loss,
-                        "avg_reward": rewards.mean(),
-                        "advantage_mean": advantages.mean(),
-                        "advantage_std": advantages.std(),
-                    }
-                    if reference_log_probs is not None:
-                        metrics["kl_div"] = kl_div.mean()
+                    构建指标字典，包含:
+                        - 总损失值
+                        - 平均奖励
+                        - 优势的均值和标准差
+                    如果有参考模型，额外添加 KL 散度均值
 
             Step 5: 返回
-                    return metrics
+                    返回包含各项指标的字典
 
         边界处理:
             - std_rewards 加 epsilon 防止除零

@@ -106,29 +106,30 @@ class Lion(Optimizer):
                             weight_decay = group['weight_decay']
 
                     Step 4: 更新动量 (m_t)
-                            # m_t = β2 * m_{t-1} + (1 - β2) * g_t
-                            exp_avg = state['exp_avg']
-                            exp_avg.mul_(beta2).add_(grad, alpha=1 - beta2)
+                            使用指数移动平均更新动量:
+                                m_t = β2 * m_{t-1} + (1 - β2) * g_t
+                            其中 m_t 存储在 exp_avg 中
 
                     Step 5: 计算更新方向
-                            # c_t = β1 * m_{t-1} + (1 - β1) * g_t
-                            # 注意：这里使用更新前的 exp_avg (即 m_{t-1})
-                            c_t = beta1 * exp_avg + (1 - beta1) * grad
+                            计算中间变量 c_t，结合当前梯度和历史动量:
+                                c_t = β1 * m_{t-1} + (1 - β1) * g_t
+                            注意: 这里使用更新前的 exp_avg (即 m_{t-1})
 
-                            # update = sign(c_t)
-                            update = torch.sign(c_t)
+                            对 c_t 应用符号函数得到更新方向:
+                                update = sign(c_t)
+                            sign 函数将正值映射为 1，负值映射为 -1，零映射为 0
 
                     Step 6: 应用权重衰减
-                            # Lion 的权重衰减在更新时应用
-                            if weight_decay != 0:
-                                p.data.mul_(1 - lr * weight_decay)
+                            Lion 的权重衰减在更新时应用:
+                                θ_{t-1} = θ_{t-1} * (1 - lr * weight_decay)
+                            这等价于: θ_{t-1} = θ_{t-1} - lr * weight_decay * θ_{t-1}
 
                     Step 7: 更新参数
-                            # θ_t = θ_{t-1} - lr * sign(c_t)
-                            p.data.add_(update, alpha=-lr)
+                            沿符号梯度的方向更新参数:
+                                θ_t = θ_{t-1} - lr * sign(c_t)
 
                     Step 8: 更新步数
-                            state['step'] += 1
+                            将当前参数的步数计数器加 1
 
         与 AdamW 的关键区别:
         1. 只有一阶动量 (节省内存)

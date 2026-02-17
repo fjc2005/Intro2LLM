@@ -164,70 +164,63 @@ class CausalLM(nn.Module):
 
         计算流程:
 
-            # Step 1: 确定 batch_size 和 seq_len
-                    batch_size, seq_len = input_ids.shape
+            Step 1: 确定批次和序列维度
+                    从输入张量中提取批次大小和序列长度
+                    这两个维度将用于后续的形状变换
 
-            # Step 2: 获取嵌入
-                    inputs_embeds = embed_tokens(input_ids)
-                    形状: [batch_size, seq_len, hidden_size]
+            Step 2: 获取嵌入向量
+                    使用词嵌入层将输入的 token ID 转换为向量表示
+                    每个 token ID 对应嵌入矩阵中的一行
+                    形状变化: [batch_size, seq_len] -> [batch_size, seq_len, hidden_size]
 
-            # Step 3: 准备位置编码 (如果不使用 RoPE)
-                    如果模型不使用 RoPE，需要添加位置编码
+            Step 3: 准备位置编码 (如果不使用 RoPE)
+                    如果配置使用正弦位置编码而非 RoPE
+                    将位置编码加到词嵌入上，注入位置信息
 
-            # Step 4: 准备注意力掩码
-                    如果提供了 attention_mask，需要转换为因果掩码格式
-                    形状: [batch_size, 1, seq_len, total_len]
-                    其中 total_len = seq_len (+ cache_len if past_key_values)
+            Step 4: 准备注意力掩码
+                    根据 attention_mask 创建因果掩码
+                    因果掩码确保每个位置只能看到当前及之前的 token
+                    掩码形状: [batch_size, 1, seq_len, total_len]
+                    其中 total_len 包含当前序列长度和缓存的序列长度
 
-                    因果掩码: 上三角为 -inf，防止看到未来 token
-                    ┌─────┬─────┬─────┬─────┐
-                    │  0  │-inf │-inf │-inf │  位置 0 只能看到自己
-                    ├─────┼─────┼─────┼─────┤
-                    │  0  │  0  │-inf │-inf │  位置 1 能看到 0, 1
-                    ├─────┼─────┼─────┼─────┤
-                    │  0  │  0  │  0  │-inf │  位置 2 能看到 0, 1, 2
-                    ├─────┼─────┼─────┼─────┤
-                    │  0  │  0  │  0  │  0  │  位置 3 能看到 0, 1, 2, 3
-                    └─────┴─────┴─────┴─────┘
+                    因果掩码结构示意:
+                    对角线及以下为 0 (允许关注)，对角线以上为负无穷 (禁止关注)
+                    这样经过 softmax 后，被掩码的位置概率为 0
 
-            # Step 5: 通过所有 Transformer 层
-                    hidden_states = inputs_embeds
-                    next_cache = [] if use_cache else None
+            Step 5: 通过所有 Transformer 层
+                    初始化隐藏状态为嵌入向量
+                    如果使用缓存，准备一个列表存储每层的 KV 缓存
 
-                    for i, layer in enumerate(layers):
-                        past_kv = past_key_values[i] if past_key_values else None
-                        hidden_states, present_kv = layer(
-                            hidden_states=hidden_states,
-                            position_ids=position_ids,
-                            attention_mask=attention_mask,
-                            past_key_value=past_kv,
-                            use_cache=use_cache,
-                        )
-                        if use_cache:
-                            next_cache.append(present_kv)
+                    遍历每一层 Transformer:
+                    - 获取当前层的缓存 (如果存在)
+                    - 将隐藏状态传入当前层，得到新的隐藏状态和当前层的 KV 缓存
+                    - 如果使用缓存，将当前层的 KV 缓存保存
 
-            # Step 6: 最终归一化
-                    hidden_states = norm(hidden_states)
-                    形状: [batch_size, seq_len, hidden_size]
+                    每一层包含自注意力和前馈网络，以及残差连接和归一化
 
-            # Step 7: 语言模型头
-                    logits = lm_head(hidden_states)
-                    形状: [batch_size, seq_len, vocab_size]
+            Step 6: 最终归一化
+                    对所有层的输出应用最终的层归一化
+                    这稳定了输出分布，有利于语言模型头的预测
 
-            # Step 8: 计算损失 (如果提供了 labels)
-                    if labels is not None:
-                        loss_fct = CrossEntropyLoss()
-                        # 将 logits 展平为 [batch*seq, vocab]
-                        # 将 labels 展平为 [batch*seq]
-                        # 忽略 labels == -100 的位置
-                        loss = loss_fct(logits.view(-1, vocab_size), labels.view(-1))
+            Step 7: 语言模型头
+                    使用语言模型头将隐藏状态映射到词表空间
+                    形状变化: [batch_size, seq_len, hidden_size] -
+                              [batch_size, seq_len, vocab_size]
+                    每个位置现在有一个分数向量，表示每个词的概率
 
-            # Step 9: 返回结果
-                    return CausalLMOutputWithPast(
-                        loss=loss,
-                        logits=logits,
-                        past_key_values=next_cache,
-                    )
+            Step 8: 计算损失 (如果提供了 labels)
+                    如果提供了训练标签，计算交叉熵损失:
+                    - 将 logits 和 labels 都展平为二维张量
+                    - 对齐维度: logits 变为 [batch*seq, vocab]
+                    - labels 变为 [batch*seq]
+                    - 忽略标签值为 -100 的位置 (padding)
+                    - 计算预测分布与目标分布的差异
+
+            Step 9: 返回结果
+                    构建 CausalLMOutputWithPast 对象返回:
+                    - loss: 计算得到的损失 (训练时)
+                    - logits: 模型预测分数
+                    - past_key_values: 各层的 KV 缓存 (用于生成加速)
         """
         pass
 
@@ -285,53 +278,53 @@ class CausalLM(nn.Module):
 
         生成流程:
 
-            Step 1: 初始化
-                    past_key_values = None
-                    batch_size = input_ids.shape[0]
-                    generated = input_ids
+            Step 1: 初始化生成状态
+                    初始化 KV 缓存为空 (首次迭代会使用完整的 prompt)
+                    获取批次大小
+                    将输入的 prompt 作为已生成序列的初始值
 
-            Step 2: 循环生成 (for i in range(max_new_tokens))
+            Step 2: 循环生成指定数量的新 token
+                    对于每个生成步骤:
 
-                    # 2.1 前向传播
-                    outputs = forward(
-                        input_ids=input_ids,  # 第一次是整个 prompt，之后只传最后一个 token
-                        past_key_values=past_key_values,
-                        use_cache=True
-                    )
-                    logits = outputs.logits[:, -1, :]  # 取最后一个位置的 logits
-                    past_key_values = outputs.past_key_values
+                    子步骤 1: 前向传播
+                    - 第一次迭代输入完整的 prompt
+                    - 后续迭代只输入最后一个生成的 token (利用 KV 缓存)
+                    - 启用 KV 缓存以加速生成
+                    - 从输出中提取最后一个位置对应的预测分数 (logits)
+                    - 保存当前层的 KV 缓存供下次使用
 
-                    # 2.2 应用温度缩放
-                    logits = logits / temperature
+                    子步骤 2: 温度缩放
+                    - 将 logits 除以温度参数
+                    - 温度控制分布的平滑程度:
+                      * 温度趋近于 0: 分布趋于尖锐，接近贪婪采样
+                      * 温度为 1: 保持原始分布
+                      * 温度大于 1: 分布更平坦，增加随机性
 
-                    # 2.3 应用 top-k 过滤
-                    if top_k > 0:
-                        indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
-                        logits[indices_to_remove] = -inf
+                    子步骤 3: Top-k 过滤
+                    - 如果启用 top-k，只保留概率最高的 k 个 token
+                    - 将其他 token 的概率设为零 (通过设为负无穷实现)
+                    - 这防止低概率的异常 token 被选中
 
-                    # 2.4 应用 top-p (nucleus) 过滤
-                    if top_p < 1.0:
-                        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-                        cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
-                        sorted_indices_to_remove = cumulative_probs > top_p
-                        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-                        sorted_indices_to_remove[..., 0] = 0
-                        indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-                        logits[indices_to_remove] = -inf
+                    子步骤 4: Top-p (Nucleus) 过滤
+                    - 如果启用 top-p，按概率降序排序 token
+                    - 计算累积概率，找到使累积概率首次超过 p 的最小 token 集合
+                    - 只保留这个核心集合中的 token
+                    - 这提供了比 top-k 更动态的截断方式
 
-                    # 2.5 采样下一个 token
-                    probs = F.softmax(logits, dim=-1)
-                    next_token = torch.multinomial(probs, num_samples=1)
+                    子步骤 5: 采样下一个 token
+                    - 将过滤后的 logits 转换为概率分布 (softmax)
+                    - 从该分布中随机采样一个 token
+                    - 这引入了可控的随机性，使生成更多样化
 
-                    # 2.6 拼接生成的 token
-                    generated = torch.cat([generated, next_token], dim=1)
-                    input_ids = next_token  # 下次只输入新 token
+                    子步骤 6: 更新生成序列
+                    - 将新采样的 token 追加到已生成序列
+                    - 为下次迭代准备输入 (仅新 token)
 
-                    # 2.7 检查是否生成 EOS
-                    if eos_token_id is not None and (next_token == eos_token_id).all():
-                        break
+                    子步骤 7: 检查停止条件
+                    - 如果生成了结束标记 (EOS) 且所有序列都生成，提前退出
+                    - 这允许变长生成，不需要总是生成到最大长度
 
-            Step 3: 返回生成的序列
-                    return generated
+            Step 3: 返回完整序列
+                    返回包含原始 prompt 和新生成 token 的完整序列
         """
         pass

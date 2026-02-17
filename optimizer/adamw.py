@@ -142,35 +142,41 @@ class AdamW(Optimizer):
                             beta1, beta2 = group['betas']
 
                     Step 4: 更新一阶矩估计 (momentum)
-                            m_t = β1 * m_{t-1} + (1 - β1) * grad
-                            exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                            使用指数移动平均更新一阶矩:
+                                m_t = β1 * m_{t-1} + (1 - β1) * grad
+                            其中 m_t 存储在 exp_avg 中
 
                     Step 5: 更新二阶矩估计 (adaptive lr)
-                            v_t = β2 * v_{t-1} + (1 - β2) * grad^2
-                            exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                            使用指数移动平均更新二阶矩:
+                                v_t = β2 * v_{t-1} + (1 - β2) * grad^2
+                            其中 v_t 存储在 exp_avg_sq 中
 
                     Step 6: 更新步数
-                            state['step'] += 1
-                            step = state['step']
+                            将当前参数的步数计数器加 1
 
                     Step 7: 偏差修正 (可选)
-                            if correct_bias:
-                                bias_correction1 = 1 - β1^step
-                                bias_correction2 = 1 - β2^step
-                                step_size = lr / bias_correction1
-                                denom = (sqrt(v_t) / sqrt(bias_correction2)) + eps
-                            else:
+                            如果启用偏差修正:
+                                计算一阶矩和二阶矩的偏差修正系数:
+                                    bias_correction1 = 1 - β1^step
+                                    bias_correction2 = 1 - β2^step
+                                调整步长:
+                                    step_size = lr / bias_correction1
+                                调整二阶矩:
+                                    denom = (√v_t / √bias_correction2) + ε
+                            否则:
                                 step_size = lr
-                                denom = sqrt(v_t) + eps
+                                denom = √v_t + ε
 
                     Step 8: Adam 更新 (自适应学习率部分)
-                            p.data.addcdiv_(exp_avg, denom, value=-step_size)
-                            # 等价于: p = p - lr * m̂ / (√v̂ + ε)
+                            使用自适应学习率更新参数:
+                                θ_t = θ_{t-1} - step_size * m̂_t / (√v̂_t + ε)
+                            其中 m̂_t 和 v̂_t 是偏差修正后的一阶矩和二阶矩
 
                     Step 9: 解耦权重衰减
-                            if weight_decay != 0:
-                                p.data.add_(p.data, alpha=-lr * weight_decay)
-                                # 注意: 使用当前的 lr，不是 m̂/(√v̂+ε)
+                            如果权重衰减系数不为零:
+                                直接对参数应用权重衰减:
+                                    θ_t = θ_t - lr * λ * θ_{t-1}
+                            注意: 使用当前学习率 lr，而非自适应学习率
 
         关键区别总结:
         - Adam: weight_decay 参与梯度计算，影响自适应学习率

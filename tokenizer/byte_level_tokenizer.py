@@ -86,13 +86,16 @@ class ByteLevelTokenizer(BPETokenizer):
 
         流程:
             Step 1: 将文本编码为 UTF-8 字节
-                    bytes_data = text.encode('utf-8')
+                    使用 UTF-8 编码将字符串转换为字节序列
 
             Step 2: 将每个字节映射为 Unicode 字符
-                    chars = [self.BYTES_TO_UNICODE[b] for b in bytes_data]
+                    遍历字节序列中的每个字节值
+                    使用 BYTES_TO_UNICODE 映射表将字节值转换为对应的 Unicode 字符
+                    收集所有映射后的字符
 
-            Step 3: 拼接
-                    return "".join(chars)
+            Step 3: 拼接字符
+                    将所有 Unicode 字符连接成一个字符串
+                    返回拼接后的字符串
         """
         pass
 
@@ -108,13 +111,18 @@ class ByteLevelTokenizer(BPETokenizer):
 
         流程:
             Step 1: 创建反向映射
-                    unicode_to_bytes = {v: k for k, v in self.BYTES_TO_UNICODE.items()}
+                    遍历 BYTES_TO_UNICODE 映射表
+                    创建从 Unicode 字符到字节值的反向映射字典
 
             Step 2: 将每个字符映射回字节
-                    bytes_data = bytes([unicode_to_bytes[c] for c in text])
+                    遍历文本中的每个 Unicode 字符
+                    使用反向映射字典查找每个字符对应的字节值
+                    将所有字节值收集成字节序列
 
             Step 3: 解码为 UTF-8
-                    return bytes_data.decode('utf-8', errors='replace')
+                    使用 UTF-8 编码将字节序列解码为字符串
+                    遇到解码错误时使用替换字符处理
+                    返回解码后的原始文本
         """
         pass
 

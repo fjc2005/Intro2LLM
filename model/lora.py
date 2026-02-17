@@ -85,26 +85,31 @@ class LoRALayer(nn.Module):
         Returns:
             输出张量，[..., out_features]
 
-        计算:
-            # 原始输出 (如果 W_0 存在)
-            original = F.linear(x, self.weight) if hasattr(self, 'weight') else 0
+        计算流程:
+            Step 1: 计算基础输出
+                    如果存在预训练权重，使用线性变换计算基础输出
+                    否则基础输出为零
 
-            # LoRA 分支
-            # Step 1: 降维
-            h = F.linear(x, self.lora_A)  # [..., r]
+            Step 2: 计算 LoRA 分支输出
+                    首先将输入通过降维矩阵 A 进行线性变换，将维度降至秩 r
+                    形状变化: [..., in_features] -> [..., r]
 
-            # Step 2: Dropout (训练时)
-            if self.training:
-                h = F.dropout(h, p=self.lora_dropout)
+            Step 3: 应用正则化
+                    在训练阶段，对降维后的表示应用 dropout 以防止过拟合
+                    推理阶段跳过此步骤
 
-            # Step 3: 升维并缩放
-            lora_output = F.linear(h, self.lora_B) * self.scaling
+            Step 4: 升维并缩放
+                    将降维后的表示通过升维矩阵 B 进行线性变换，恢复原始输出维度
+                    形状变化: [..., r] -> [..., out_features]
+                    然后乘以缩放因子 alpha/r
 
-            # Step 4: 合并输出
-            return original + lora_output
+            Step 5: 合并输出
+                    将基础输出与 LoRA 分支输出相加，得到最终输出
+                    数学公式: output = base_output + (LoRA_branch * scaling)
 
         训练时的梯度流:
-            只有 lora_A 和 lora_B 有梯度，原权重无梯度
+            只有降维矩阵 A 和升维矩阵 B 的参数会计算梯度并更新
+            预训练权重保持冻结，不参与梯度计算
         """
         pass
 
@@ -181,15 +186,18 @@ def mark_only_lora_as_trainable(model: nn.Module, bias: str = "none"):
 
     流程:
         Step 1: 冻结所有参数
-                for param in model.parameters():
-                    param.requires_grad = False
+                遍历模型的所有参数，将每个参数的 requires_grad 属性设置为 False
+                这会阻止这些参数在反向传播时计算梯度
 
         Step 2: 解冻 LoRA 参数
-                for name, param in model.named_parameters():
-                    if "lora_" in name:
-                        param.requires_grad = True
+                遍历模型的所有命名参数，检查参数名称中是否包含 LoRA 标识
+                对于 LoRA 相关的参数，将其 requires_grad 属性设置为 True
+                这些参数将在训练时更新
 
         Step 3: 处理 bias (根据配置)
+                如果 bias 参数设置为 "all"，解冻所有偏置参数
+                如果设置为 "lora_only"，只解冻 LoRA 层中的偏置
+                如果设置为 "none"，保持偏置参数冻结
     """
     pass
 

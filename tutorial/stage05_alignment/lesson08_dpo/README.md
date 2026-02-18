@@ -252,24 +252,24 @@ class DPOLoss(nn.Module):
             metrics: 包含辅助指标的字典
         """
         # Step 1: 计算隐式奖励 (scaled log ratios)
-        # policy_chosen_logratios = policy_chosen_logps - reference_chosen_logps
-        # policy_rejected_logratios = policy_rejected_logps - reference_rejected_logps
+        # 计算策略模型与参考模型在偏好回答上的对数概率差
+        # 计算策略模型与参考模型在非偏好回答上的对数概率差
 
         # Step 2: 计算logits (Bradley-Terry模型输入)
-        # logits = self.beta * (policy_chosen_logratios - policy_rejected_logratios)
+        # 将两个对数概率差相减，再乘以beta系数
+        # 公式: beta * (chosen_logratio - rejected_logratio)
 
         # Step 3: 计算DPO损失 (负对数似然)
-        # losses = -F.logsigmoid(logits)
+        # 对logits应用log-sigmoid函数后取负值
 
         # Step 4: Label smoothing (可选)
-        # if self.label_smoothing > 0:
-        #     losses = (1 - label_smoothing) * losses + label_smoothing * F.logsigmoid(-logits)
+        # 如果启用标签平滑，根据平滑系数调整损失值
 
         # Step 5: 计算辅助指标
-        # chosen_rewards = self.beta * policy_chosen_logratios
-        # rejected_rewards = self.beta * policy_rejected_logratios
-        # reward_margin = chosen_rewards - rejected_rewards
-        # accuracy = (reward_margin > 0).float().mean()
+        # 计算偏好回答的隐式奖励: beta * chosen_logratio
+        # 计算非偏好回答的隐式奖励: beta * rejected_logratio
+        # 计算奖励间隔 (两个奖励的差值)
+        # 计算准确率 (奖励间隔大于0的样本比例)
 
         pass
 
@@ -284,16 +284,15 @@ class DPOLoss(nn.Module):
         技巧: 将chosen和rejected拼接，一次前向传播
         """
         # Step 1: 拼接输入
-        # concatenated_input_ids = torch.cat([batch["chosen_input_ids"], batch["rejected_input_ids"]])
-        # concatenated_attention_mask = torch.cat([...])
+        # 将chosen和rejected的input_ids在批次维度上拼接
+        # 将chosen和rejected的attention_mask在批次维度上拼接
 
         # Step 2: 前向传播
-        # outputs = model(concatenated_input_ids, attention_mask=concatenated_attention_mask)
+        # 将拼接后的输入传入模型，获取输出logits
 
         # Step 3: 分割结果
-        # all_logps = self._get_batch_logps(...)
-        # chosen_logps = all_logps[:batch_size]
-        # rejected_logps = all_logps[batch_size:]
+        # 计算所有样本的对数概率
+        # 根据原始批次大小分割得到chosen和rejected的对数概率
 
         pass
 
@@ -315,20 +314,19 @@ class DPOLoss(nn.Module):
             log_probs: [batch]，每个样本的log概率
         """
         # Step 1: 计算log softmax
-        # log_probs = F.log_softmax(logits, dim=-1)
+        # 对logits的最后一个维度(词表维度)应用log-softmax函数
 
         # Step 2: 收集目标token的log概率
-        # per_token_logps = torch.gather(log_probs, dim=2, index=labels.unsqueeze(2)).squeeze(2)
+        # 根据labels中的token ID，从log概率分布中收集对应位置的值
+        # 将labels增加一个维度以匹配gather操作要求，收集后去除多余维度
 
         # Step 3: mask掉prompt部分 (labels == -100)
-        # loss_mask = (labels != -100).float()
-        # per_token_logps = per_token_logps * loss_mask
+        # 创建掩码标记labels不等于-100的位置
+        # 将每token的对数概率与掩码相乘，忽略prompt部分的贡献
 
         # Step 4: 求和或平均
-        # if average_log_prob:
-        #     return (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
-        # else:
-        #     return (per_token_logps * loss_mask).sum(-1)
+        # 如果启用长度归一化，将掩码后的对数概率求和后除以有效token数
+        # 否则直接对掩码后的对数概率求和
 
         pass
 ```
@@ -357,15 +355,14 @@ class DPOTrainer:
         lr_scheduler: Optional = None,
     ):
         # Step 1: 保存模型
-        # self.model = model  # policy模型 (可训练)
-        # self.ref_model = ref_model  # reference模型 (冻结)
+        # 保存可训练的策略模型
+        # 保存参考模型(冻结参数)
 
         # Step 2: 冻结reference模型
-        # for param in self.ref_model.parameters():
-        #     param.requires_grad = False
+        # 遍历参考模型的所有参数，设置requires_grad为False
 
         # Step 3: 初始化损失函数
-        # self.loss_fn = DPOLoss(beta=beta)
+        # 创建DPOLoss实例，传入beta参数
 
         # Step 4: 保存优化器和调度器
         pass
@@ -390,16 +387,15 @@ class DPOTrainer:
             logps: [batch]，每个样本的log概率
         """
         # Step 1: 前向传播
-        # outputs = model(input_ids, attention_mask=attention_mask)
-        # logits = outputs[0] if isinstance(outputs, tuple) else outputs.logits
+        # 将输入传入模型，获取模型输出
+        # 从模型输出中提取logits张量
 
         # Step 2: 构建labels (mask掉prompt)
-        # labels = input_ids.clone()
-        # for i, pl in enumerate(prompt_length):
-        #     labels[i, :pl] = -100
+        # 复制input_ids作为labels
+        # 对每个样本，将prompt部分(前prompt_length个token)对应的labels设为-100
 
         # Step 3: 计算log概率
-        # log_probs = self.loss_fn._get_batch_logps(logits, labels)
+        # 调用损失函数的辅助方法计算每个样本的对数概率
 
         pass
 
@@ -417,29 +413,22 @@ class DPOTrainer:
             metrics: 损失和辅助指标
         """
         # Step 1: 计算policy模型的logps
-        # policy_chosen_logps = self.compute_logps(
-        #     self.model, batch["chosen_input_ids"], ..., batch["prompt_length"]
-        # )
-        # policy_rejected_logps = self.compute_logps(...)
+        # 调用compute_logps方法计算策略模型对chosen回答的对数概率
+        # 调用compute_logps方法计算策略模型对rejected回答的对数概率
 
         # Step 2: 计算reference模型的logps (无梯度)
-        # with torch.no_grad():
-        #     ref_chosen_logps = self.compute_logps(self.ref_model, ...)
-        #     ref_rejected_logps = self.compute_logps(self.ref_model, ...)
+        # 在禁用梯度计算的环境中:
+        #   调用compute_logps计算参考模型对chosen回答的对数概率
+        #   调用compute_logps计算参考模型对rejected回答的对数概率
 
         # Step 3: 计算DPO损失
-        # loss, metrics = self.loss_fn(
-        #     policy_chosen_logps,
-        #     policy_rejected_logps,
-        #     ref_chosen_logps,
-        #     ref_rejected_logps,
-        # )
+        # 调用损失函数，传入四个对数概率张量，获取损失值和指标
 
         # Step 4: 反向传播和更新
-        # loss.backward()
-        # self.optimizer.step()
-        # self.lr_scheduler.step()
-        # self.optimizer.zero_grad()
+        # 执行反向传播计算梯度
+        # 调用优化器步骤更新模型参数
+        # 调用学习率调度器步骤
+        # 清空优化器梯度缓存
 
         pass
 

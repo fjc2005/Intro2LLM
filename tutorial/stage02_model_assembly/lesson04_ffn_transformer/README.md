@@ -222,15 +222,16 @@ class SwiGLU(nn.Module):
     def __init__(self, hidden_size: int, intermediate_size: int, dropout: float = 0.0):
         super().__init__()
         # Step 1: 创建门控投影层 W_gate
-        # nn.Linear(hidden_size, intermediate_size, bias=False)
+        # 初始化一个线性层，输入维度为hidden_size，输出维度为intermediate_size，不使用偏置项
 
         # Step 2: 创建上投影层 W_up
-        # nn.Linear(hidden_size, intermediate_size, bias=False)
+        # 初始化一个线性层，输入维度为hidden_size，输出维度为intermediate_size，不使用偏置项
 
         # Step 3: 创建下投影层 W_down
-        # nn.Linear(intermediate_size, hidden_size, bias=False)
+        # 初始化一个线性层，输入维度为intermediate_size，输出维度为hidden_size，不使用偏置项
 
         # Step 4: Dropout层
+        # 初始化一个dropout层，用于随机置零部分神经元输出
         pass
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -241,22 +242,24 @@ class SwiGLU(nn.Module):
             output: [batch, seq_len, hidden_size]
         """
         # Step 1: 计算门控值
-        # gate = F.silu(self.gate_proj(x))  # Swish激活
-        # Shape: [batch, seq_len, intermediate_size]
+        # 将输入通过门控投影层，然后应用Swish激活函数
+        # Swish激活定义为: x * sigmoid(x)
+        # 结果形状: [batch, seq_len, intermediate_size]
 
         # Step 2: 计算上投影
-        # up = self.up_proj(x)
-        # Shape: [batch, seq_len, intermediate_size]
+        # 将输入通过上投影层
+        # 结果形状: [batch, seq_len, intermediate_size]
 
         # Step 3: 门控乘法
-        # gated = gate * up  # 逐元素乘法
-        # Shape: [batch, seq_len, intermediate_size]
+        # 将门控值与上投影结果逐元素相乘
+        # 结果形状: [batch, seq_len, intermediate_size]
 
         # Step 4: 下投影
-        # output = self.down_proj(gated)
-        # Shape: [batch, seq_len, hidden_size]
+        # 将门控乘法结果通过下投影层，映射回hidden_size维度
+        # 结果形状: [batch, seq_len, hidden_size]
 
         # Step 5: Dropout
+        # 对下投影结果应用dropout正则化
         pass
 
 
@@ -280,13 +283,13 @@ class GeGLU(nn.Module):
             output: [batch, seq_len, hidden_size]
         """
         # Step 1: 计算门控值
-        # gate = F.gelu(self.gate_proj(x))
+        # 将输入通过门控投影层，然后应用GELU激活函数
 
         # Step 2: 计算上投影并相乘
-        # up = self.up_proj(x)
-        # gated = gate * up
+        # 将输入通过上投影层，然后将结果与门控值逐元素相乘
 
         # Step 3: 下投影和dropout
+        # 将相乘结果通过下投影层，然后应用dropout正则化
         pass
 
 
@@ -306,11 +309,9 @@ class FeedForward(nn.Module):
     ):
         super().__init__()
         # Step 1: 根据hidden_act选择实现
-        # if hidden_act == "swiglu":
-        #     self.act = SwiGLU(hidden_size, intermediate_size, dropout)
-        # elif hidden_act == "geglu":
-        #     self.act = GeGLU(hidden_size, intermediate_size, dropout)
-        # ...其他激活函数
+        # 如果hidden_act为"swiglu"，初始化SwiGLU模块
+        # 如果hidden_act为"geglu"，初始化GeGLU模块
+        # 其他激活函数类似处理
         pass
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -354,32 +355,15 @@ class TransformerBlock(nn.Module):
     ):
         super().__init__()
         # Step 1: 初始化输入归一化层
-        # if use_rms_norm:
-        #     self.input_layernorm = RMSNorm(hidden_size, eps=rms_norm_eps)
-        #     self.post_attention_layernorm = RMSNorm(hidden_size, eps=rms_norm_eps)
-        # else:
-        #     self.input_layernorm = LayerNorm(hidden_size, eps=rms_norm_eps)
-        #     self.post_attention_layernorm = LayerNorm(hidden_size, eps=rms_norm_eps)
+        # 根据配置选择RMSNorm或LayerNorm
+        # 分别用于Attention前和FFN前的归一化
 
         # Step 2: 初始化自注意力层
-        # self.self_attn = MultiHeadAttention(
-        #     hidden_size=hidden_size,
-        #     num_attention_heads=num_attention_heads,
-        #     num_key_value_heads=num_key_value_heads,
-        #     dropout=attention_dropout,
-        #     use_rope=True,
-        #     rope_base=rope_base,
-        #     max_position_embeddings=max_position_embeddings,
-        # )
+        # 创建多头注意力模块，传入隐藏层大小、注意力头数等参数
+        # 启用RoPE位置编码
 
         # Step 3: 初始化FFN
-        # self.mlp = FeedForward(
-        #     hidden_size=hidden_size,
-        #     intermediate_size=intermediate_size,
-        #     hidden_act=hidden_act,
-        #     dropout=dropout,
-        # )
-
+        # 创建前馈网络模块，使用指定的激活函数
         pass
 
     def forward(
@@ -401,29 +385,24 @@ class TransformerBlock(nn.Module):
             present_key_value: 可选的(K, V)元组
         """
         # Step 1: 保存残差
-        # residual = hidden_states
+        # 保存输入隐藏状态用于后续的残差连接
 
         # Step 2: 输入归一化
-        # hidden_states = self.input_layernorm(hidden_states)
+        # 对隐藏状态应用输入层归一化
 
         # Step 3: 自注意力 + 残差连接
-        # hidden_states, present_key_value = self.self_attn(
-        #     hidden_states=hidden_states,
-        #     attention_mask=attention_mask,
-        #     past_key_value=past_key_value,
-        #     use_cache=use_cache,
-        # )
-        # hidden_states = residual + hidden_states
+        # 将归一化后的状态传入自注意力层
+        # 将注意力输出与原始残差相加
 
         # Step 4: 保存残差
-        # residual = hidden_states
+        # 保存当前状态用于FFN子层的残差连接
 
         # Step 5: FFN前归一化
-        # hidden_states = self.post_attention_layernorm(hidden_states)
+        # 对当前状态应用后注意力层归一化
 
         # Step 6: FFN + 残差连接
-        # hidden_states = self.mlp(hidden_states)
-        # hidden_states = residual + hidden_states
+        # 将归一化后的状态传入FFN层
+        # 将FFN输出与残差相加
 
         # Step 7: 返回结果和KV缓存
         pass

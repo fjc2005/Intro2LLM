@@ -25,10 +25,12 @@ def forward(self, x: torch.Tensor) -> torch.Tensor:
     """
     # Step 1: 转换为float32以保证数值稳定性
     # Step 2: 计算均方值 (mean of x^2)
-    #    variance = x.pow(2).mean(dim=-1, keepdim=True)
+    #    对输入张量的最后一个维度(即hidden_size维度)计算平方后取平均
+    #    保持维度以便广播操作
     #    Shape: [batch, seq_len, 1]
     # Step 3: 计算RMS并应用归一化
-    #    Formula: output = x / sqrt(variance + eps) * self.weight
+    #    使用数学公式: output = x / sqrt(variance + eps) * weight
+    #    其中rsqrt表示平方根的倒数(1/sqrt)
     # Step 4: 转回原始数据类型
     pass
 ```

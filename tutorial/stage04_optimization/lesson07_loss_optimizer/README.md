@@ -379,33 +379,32 @@ class AdamW(Optimizer):
 
                 # Step 1: 初始化状态
                 if len(state) == 0:
-                    # state['step'] = 0
-                    # state['exp_avg'] = torch.zeros_like(p)  # m_t
-                    # state['exp_avg_sq'] = torch.zeros_like(p)  # v_t
+                    # 初始化优化步数为0
+                    # 创建与参数形状相同的一阶矩(m_t)缓存，初始值为0
+                    # 创建与参数形状相同的二阶矩(v_t)缓存，初始值为0
                     pass
 
                 # Step 2: 获取状态
-                # exp_avg = state['exp_avg']
-                # exp_avg_sq = state['exp_avg_sq']
-                # step = state['step']
+                # 从state中获取一阶矩和二阶矩缓存
+                # 获取当前优化步数
 
                 # Step 3: 更新一阶矩和二阶矩
-                # exp_avg = beta1 * exp_avg + (1 - beta1) * grad
-                # exp_avg_sq = beta2 * exp_avg_sq + (1 - beta2) * grad * grad
+                # 使用指数移动平均公式更新一阶矩: beta1 * m + (1 - beta1) * g
+                # 使用指数移动平均公式更新二阶矩: beta2 * v + (1 - beta2) * g^2
 
                 # Step 4: 偏差修正
-                # bias_correction1 = 1 - beta1 ** step
-                # bias_correction2 = 1 - beta2 ** step
-                # step_size = lr / bias_correction1
+                # 计算一阶矩的偏差修正分母: 1 - beta1^step
+                # 计算二阶矩的偏差修正分母: 1 - beta2^step
+                # 计算步长: lr / bias_correction1
 
-                # Step 5: 计算自适应学习率
-                # denom = (exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(eps)
+                # Step 5: 计算自适应学习率分母
+                # 对二阶矩开平方后除以二阶矩偏差修正分母的平方根，再加eps
 
                 # Step 6: 参数更新
-                # p.data = p.data - step_size * exp_avg / denom
+                # 使用公式: p = p - step_size * m_hat / denom
 
                 # Step 7: 解耦权重衰减
-                # p.data = p.data - lr * weight_decay * p.data
+                # 直接将权重衰减应用于参数: p = p - lr * weight_decay * p
 
                 pass
 
@@ -452,25 +451,25 @@ class Lion(Optimizer):
 
                 # Step 1: 初始化状态
                 if len(state) == 0:
-                    # state['step'] = 0
-                    # state['exp_avg'] = torch.zeros_like(p)  # 动量
+                    # 初始化优化步数为0
+                    # 创建与参数形状相同的动量缓存，初始值为0
                     pass
 
                 # Step 2: 获取状态
-                # exp_avg = state['exp_avg']
-                # step = state['step']
+                # 从state中获取动量缓存和当前优化步数
 
                 # Step 3: 计算更新方向 (符号动量组合)
-                # update = beta1 * exp_avg + (1 - beta1) * grad
+                # 根据公式计算: beta1 * 动量 + (1 - beta1) * 梯度
 
                 # Step 4: 更新动量
-                # exp_avg = beta2 * exp_avg + (1 - beta2) * grad
+                # 使用指数移动平均更新动量: beta2 * m + (1 - beta2) * g
 
                 # Step 5: 符号更新
-                # p.data = p.data - lr * torch.sign(update)
+                # 计算更新方向的符号(正负号)
+                # 使用符号值更新参数: p = p - lr * sign(update)
 
                 # Step 6: 权重衰减
-                # p.data = p.data - lr * weight_decay * p.data
+                # 应用解耦权重衰减: p = p - lr * weight_decay * p
 
                 pass
 
@@ -511,18 +510,16 @@ class WarmupCosineScheduler:
             current_step: 当前训练步数
         """
         # Step 1: Warmup阶段
-        # if current_step < warmup_steps:
-        #     lr = base_lr * (current_step / warmup_steps)
+        # 如果当前步数小于warmup步数，线性增加学习率
+        # 公式: 基础学习率 * (当前步数 / warmup步数)
 
         # Step 2: Cosine Decay阶段
-        # else:
-        #     progress = (current_step - warmup_steps) / (total_steps - warmup_steps)
-        #     cosine_decay = 0.5 * (1 + math.cos(math.pi * progress))
-        #     lr = min_lr + (base_lr - min_lr) * cosine_decay
+        # 计算当前进度 (已完成的非warmup步数占总非warmup步数的比例)
+        # 计算余弦衰减因子: 0.5 * (1 + cos(pi * 进度))
+        # 最终学习率 = 最小学习率 + (基础学习率 - 最小学习率) * 余弦衰减因子
 
         # Step 3: 更新优化器学习率
-        # for param_group in self.optimizer.param_groups:
-        #     param_group['lr'] = lr
+        # 遍历优化器的所有参数组，将计算的学习率赋值给每组
 
         pass
 
@@ -562,10 +559,10 @@ class DPOLoss(nn.Module):
         # rejected_ratio = policy_rejected_logps - reference_rejected_logps
 
         # Step 2: 计算logits ( Bradley-Terry模型 )
-        # logits = beta * (chosen_ratio - rejected_ratio)
+        # 将chosen和rejected的log概率差乘以beta系数
 
         # Step 3: 计算损失
-        # loss = -F.logsigmoid(logits).mean()
+        # 对logits应用log-sigmoid函数，取负值后求平均
 
         pass
 ```

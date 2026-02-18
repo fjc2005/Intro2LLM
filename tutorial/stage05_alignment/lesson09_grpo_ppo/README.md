@@ -193,27 +193,26 @@ class GRPOLoss(nn.Module):
             reference_logprobs: 参考模型的log概率
         """
         # Step 1: 计算组内基线（平均奖励）
-        # baseline = rewards.mean(dim=-1, keepdim=True)
+        # 对每个组内的奖励求平均值，保持维度以便广播
 
         # Step 2: 计算优势函数
-        # advantages = rewards - baseline
-        # 可选：归一化优势
-        # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        # 将每个奖励减去组内基线，得到优势值
+        # 可选：对组内优势进行归一化，减去均值后除以标准差
 
         # Step 3: 计算概率比率
-        # log_ratios = policy_logprobs - old_policy_logprobs
-        # ratios = torch.exp(log_ratios)
+        # 计算当前策略与旧策略对数概率的差值
+        # 对差值取指数得到概率比率
 
         # Step 4: 计算裁剪目标
-        # surr1 = ratios * advantages
-        # surr2 = torch.clamp(ratios, 1-self.clip_epsilon, 1+self.clip_epsilon) * advantages
-        # policy_loss = -torch.min(surr1, surr2).mean()
+        # 计算原始目标函数值: ratio * advantage
+        # 计算裁剪后的目标函数值: clamp(ratio, 1-ε, 1+ε) * advantage
+        # 取两者中的较小值，求平均后取负
 
         # Step 5: 计算KL散度约束
-        # kl_div = (policy_logprobs - reference_logprobs).mean()
+        # 计算当前策略与参考模型对数概率差的均值作为KL散度
 
         # Step 6: 总损失
-        # loss = policy_loss + self.kl_beta * kl_div
+        # 将策略损失与KL散度惩罚项相加
 
         pass
 ```
@@ -253,22 +252,22 @@ class PPOLoss(nn.Module):
         计算PPO总损失
         """
         # Step 1: 计算概率比率
-        # log_ratios = policy_logprobs - old_policy_logprobs
-        # ratios = torch.exp(log_ratios)
+        # 计算当前策略与旧策略对数概率的差值
+        # 对差值取指数得到概率比率
 
         # Step 2: 计算CLIP策略损失
-        # surr1 = ratios * advantages
-        # surr2 = torch.clamp(ratios, 1-ε, 1+ε) * advantages
-        # policy_loss = -torch.min(surr1, surr2).mean()
+        # 计算原始目标函数值: ratio * advantage
+        # 计算裁剪后的目标函数值: clamp(ratio, 1-ε, 1+ε) * advantage
+        # 取两者中的较小值，求平均后取负
 
         # Step 3: 计算价值函数损失
-        # value_loss = F.mse_loss(values, returns)
+        # 使用均方误差计算Critic预测值与实际回报的差值
 
         # Step 4: 熵奖励（鼓励探索）
-        # entropy_loss = -entropy.mean()
+        # 对策略熵求平均后取负值作为奖励
 
         # Step 5: 总损失
-        # loss = policy_loss + vf_coef * value_loss + entropy_coef * entropy_loss
+        # 将策略损失、价值函数损失和熵损失按权重相加
 
         pass
 
@@ -287,17 +286,18 @@ class PPOLoss(nn.Module):
             returns: [batch, seq_len] (GAE + values)
         """
         # Step 1: 计算TD残差
-        # deltas = rewards + gamma * values[:, 1:] - values[:, :-1]
+        # 对每个时间步t，计算: r_t + gamma * V(s_{t+1}) - V(s_t)
 
         # Step 2: 反向计算累积优势
-        # advantages = torch.zeros_like(values)
-        # gae = 0
-        # for t in reversed(range(len(rewards))):
-        #     gae = deltas[t] + gamma * lam * gae
-        #     advantages[t] = gae
+        # 创建与values形状相同的全零张量用于存储优势
+        # 初始化gae变量为0
+        # 从后向前遍历时间步:
+        #   使用公式: gae = delta_t + gamma * lambda * gae
+        #   将计算结果存入优势张量
 
         # Step 3: 计算returns
-        # returns = advantages + values
+        # 将优势值与状态价值相加得到回报估计
+
 
         pass
 ```

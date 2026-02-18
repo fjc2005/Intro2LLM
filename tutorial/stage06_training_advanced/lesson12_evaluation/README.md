@@ -223,21 +223,19 @@ def compute_perplexity(
     PPL = exp(-mean(log P(x_i)))
     """
     # Step 1: 累计损失
-    # total_loss = 0
-    # total_tokens = 0
+    # 初始化总损失为0
+    # 初始化总token数为0
 
     # Step 2: 遍历数据
-    # for batch in dataloader:
-    #     logits = model(batch['input_ids'])
-    #     loss = F.cross_entropy(logits.view(-1, vocab_size),
-    #                            batch['labels'].view(-1),
-    #                            reduction='sum')
-    #     total_loss += loss.item()
-    #     total_tokens += (batch['labels'] != -100).sum().item()
+    # 对每个批次:
+    #   获取模型输出的logits
+    #   计算交叉熵损失，使用sum reduction累加所有token的损失
+    #   将批次损失累加到总损失
+    #   统计批次中非padding token的数量(标签不等于-100的位置)
 
     # Step 3: 计算PPL
-    # avg_loss = total_loss / total_tokens
-    # ppl = math.exp(avg_loss)
+    # 计算平均损失: 总损失除以总token数
+    # 计算困惑度: 对平均损失取指数
 
     pass
 ```

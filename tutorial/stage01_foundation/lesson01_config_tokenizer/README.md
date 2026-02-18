@@ -210,11 +210,11 @@ class ModelConfig:
 
     # Step 2: 实现__post_init__进行参数验证
     # 验证1: num_attention_heads必须整除hidden_size
-    #    assert self.hidden_size % self.num_attention_heads == 0
+    #    使用取模运算验证整除关系，若余数不为0则抛出异常
     # 验证2: num_key_value_heads必须整除num_attention_heads
-    #    assert self.num_attention_heads % self.num_key_value_heads == 0
+    #    使用取模运算验证整除关系
     # 验证3: 计算head_dim
-    #    self.head_dim = self.hidden_size // self.num_attention_heads
+    #    通过 hidden_size 除以 num_attention_heads 得到每个头的维度
 
     # Step 3: 提供辅助属性
     @property
@@ -281,7 +281,7 @@ class BPETokenizer:
         Step 3: 迭代应用合并规则:
             3.1 找出当前序列中所有可合并的相邻对
             3.2 按合并规则优先级选择最先定义的合并
-            3.3 执行合并
+            3.3 执行合并操作，将相邻字符对组合成新的token
         Step 4: 将最终token序列转换为IDs
 
         Returns:

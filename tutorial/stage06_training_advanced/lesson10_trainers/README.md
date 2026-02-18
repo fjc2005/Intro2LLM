@@ -239,19 +239,19 @@ class BaseTrainer:
 
     def training_step(self, batch):
         # Step 1: 混合精度前向
-        # with autocast():
-        #     loss = self.compute_loss(batch)
+        # 使用自动混合精度上下文管理器
+        # 计算损失值
 
         # Step 2: 缩放反向传播
-        # self.scaler.scale(loss).backward()
+        # 使用GradScaler对损失进行缩放后执行反向传播
 
         # Step 3: 梯度裁剪
-        # self.scaler.unscale_(optimizer)
-        # clip_grad_norm_(model.parameters(), max_grad_norm)
+        # 先对梯度进行反缩放
+        # 使用clip_grad_norm_对模型参数梯度进行裁剪
 
         # Step 4: 优化器步骤
-        # self.scaler.step(optimizer)
-        # self.scaler.update()
+        # 调用scaler的step方法执行优化器更新
+        # 更新scaler的缩放因子
 
         pass
 ```

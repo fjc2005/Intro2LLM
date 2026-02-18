@@ -180,26 +180,27 @@ class LoRALayer(nn.Module):
     ):
         super().__init__()
         # Step 1: 保存配置
-        # self.r = r
-        # self.lora_alpha = lora_alpha
-        # self.scaling = lora_alpha / r
+        # 保存秩r、alpha参数和缩放因子(alpha/r)
 
         # Step 2: 创建低秩矩阵
-        # self.lora_A = nn.Parameter(torch.randn(r, in_features))
-        # self.lora_B = nn.Parameter(torch.zeros(out_features, r))
+        # 创建A矩阵作为可学习参数，使用随机初始化，形状为[r, in_features]
+        # 创建B矩阵作为可学习参数，使用零初始化，形状为[out_features, r]
 
         # Step 3: Dropout
+        # 初始化dropout层用于正则化
         pass
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Step 1: 原始输出 (W_0 * x)
-        # original = self.base_layer(x)
+        # 将输入传入基础线性层，获取原始输出
 
         # Step 2: LoRA分支
-        # lora = x @ self.lora_A.T @ self.lora_B.T * self.scaling
+        # 将输入与A矩阵转置相乘，再与B矩阵转置相乘
+        # 将结果乘以缩放因子
 
         # Step 3: 合并输出
-        # return original + lora
+        # 将原始输出与LoRA分支输出相加
+
         pass
 
 
@@ -228,13 +229,12 @@ class QLoRAModel:
 
     def __init__(self, model, quantization_config):
         # Step 1: 量化基础模型到4-bit
-        # quantize_model(model, bits=4, ...)
+        # 调用量化函数将模型的基础权重压缩到4位精度
 
         # Step 2: 添加LoRA层
-        # for name, module in model.named_modules():
-        #     if isinstance(module, nn.Linear):
-        #         lora_module = LinearWithLoRA(module, ...)
-        #         replace_module(model, name, lora_module)
+        # 遍历模型的所有命名模块
+        # 如果模块是线性层，使用LinearWithLoRA包装器为其添加LoRA能力
+        # 用包装后的模块替换原模块
 
         pass
 
@@ -258,22 +258,20 @@ def flash_attention_forward(
 
     使用PyTorch 2.0+内置的scaled_dot_product_attention
     """
+    Flash Attention前向传播
+
+    使用PyTorch 2.0+内置的scaled_dot_product_attention
+    """
     # Step 1: 检查支持
-    # if hasattr(F, 'scaled_dot_product_attention'):
-    #     return F.scaled_dot_product_attention(
-    #         q, k, v,
-    #         attn_mask=None,
-    #         dropout_p=0.0,
-    #         is_causal=causal,
-    #         scale=None,
-    #     )
+    # 检查函数是否支持scaled_dot_product_attention
+    # 如果支持，调用该函数传入Q、K、V和causal参数
+    # 该函数会自动选择最优实现(Flash Attention、Memory-Efficient Attention等)
 
     # Step 2: 回退到标准attention
-    # scores = torch.matmul(q, k.transpose(-2, -1)) / sqrt(head_dim)
-    # if causal:
-    #     scores = apply_causal_mask(scores)
-    # attn = F.softmax(scores, dim=-1)
-    # return torch.matmul(attn, v)
+    # 计算Q与K转置的矩阵乘法，除以头维度的平方根进行缩放
+    # 如果是因果注意力，应用因果掩码
+    # 对分数应用softmax得到注意力权重
+    # 将注意力权重与V相乘得到输出
 
     pass
 ```

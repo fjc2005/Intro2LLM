@@ -327,24 +327,25 @@ class LayerNorm(nn.Module):
             normalized: [..., hidden_size]
         """
         # Step 1: 计算输入的原始数据类型(用于最后转换回来)
-        # original_dtype = x.dtype
+        # 保存输入张量的数据类型属性
 
         # Step 2: 转换为float32进行数值稳定计算
-        # x = x.float()
+        # 调用张量的类型转换方法
 
         # Step 3: 计算均值 (沿最后一个维度)
-        # mean = x.mean(dim=-1, keepdim=True)
+        # 对最后一维求和后除以维度大小，保持维度用于广播
         # Shape: [..., 1]
 
         # Step 4: 计算方差 (沿最后一个维度)
-        # variance = ((x - mean) ** 2).mean(dim=-1, keepdim=True)
+        # 计算每个元素与均值差的平方，然后沿最后一维求平均
         # Shape: [..., 1]
 
         # Step 5: 归一化
-        # x_norm = (x - mean) / torch.sqrt(variance + self.eps)
+        # 使用公式: (x - mean) / sqrt(variance + eps)
+        # 其中eps是预定义的小常数
 
         # Step 6: 缩放和平移
-        # output = x_norm * self.weight + self.bias
+        # 归一化结果乘以可学习的缩放参数，加上可学习的偏移参数
 
         # Step 7: 转回原始数据类型
         pass
@@ -377,21 +378,21 @@ class RMSNorm(nn.Module):
             normalized: [..., hidden_size]
         """
         # Step 1: 保存原始数据类型
-        # original_dtype = x.dtype
+        # 记录输入张量的数据类型以备后续转换
 
         # Step 2: 转换为float32
-        # x = x.float()
+        # 调用张量类型转换方法提升数值精度
 
         # Step 3: 计算均方值 (mean of x^2)
-        # variance = x.pow(2).mean(dim=-1, keepdim=True)
+        # 对每个元素求平方后沿最后一维计算算术平均
         # Shape: [..., 1]
 
         # Step 4: 计算归一化因子
-        # x_norm = x * torch.rsqrt(variance + self.eps)
-        # rsqrt = 1 / sqrt，数值更稳定
+        # 使用数学公式: x / sqrt(variance + eps)
+        # 其中rsqrt表示平方根的倒数运算
 
         # Step 5: 应用可学习权重
-        # output = x_norm * self.weight
+        # 将归一化结果与可学习缩放参数逐元素相乘
 
         # Step 6: 转回原始数据类型
         pass
@@ -414,7 +415,7 @@ class TokenEmbedding(nn.Module):
     def __init__(self, vocab_size: int, hidden_size: int):
         super().__init__()
         # Step 1: 创建Embedding层
-        # nn.Embedding(vocab_size, hidden_size)
+        # 初始化一个可学习的嵌入矩阵，行数为词表大小，列数为隐藏维度
         pass
 
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
@@ -425,7 +426,7 @@ class TokenEmbedding(nn.Module):
             embeddings: [batch_size, seq_len, hidden_size]
         """
         # Step 1: 直接通过embedding层查找
-        # embeddings = self.embedding(input_ids)
+        # 使用整数索引从嵌入矩阵中提取对应行向量
         pass
 
 
@@ -439,20 +440,19 @@ class RoPE(nn.Module):
     def __init__(self, head_dim: int, max_seq_len: int = 4096, base: float = 10000.0):
         super().__init__()
         # Step 1: 保存配置
-        # self.head_dim = head_dim
-        # self.max_seq_len = max_seq_len
-        # self.base = base
+        # 保存头维度、最大序列长度和旋转基频参数
 
         # Step 2: 预计算旋转角度θ
-        # 为每对维度计算: θ_i = 1 / (base^(2i/head_dim))
-        # i ∈ [0, head_dim/2)
-        # inv_freq形状: [head_dim/2]
+        # 为每对维度计算旋转角度的倒数频率:
+        # 公式: θ_i = 1 / (base^(2i/head_dim)), i ∈ [0, head_dim/2)
+        # 使用幂运算计算频率倒数值
+        # 结果形状: [head_dim/2]
 
         # Step 3: 预计算所有位置的sin/cos缓存
-        # positions = torch.arange(max_seq_len)
-        # angles = positions[:, None] * inv_freq[None, :]  # [max_seq_len, head_dim/2]
-        # 扩展为成对形式: [max_seq_len, head_dim]
-        # 缓存cos和sin值
+        # 创建位置索引序列 [0, 1, ..., max_seq_len-1]
+        # 将位置与频率相乘得到角度矩阵，形状为 [max_seq_len, head_dim/2]
+        # 扩展为成对形式以匹配旋转需求，形状变为 [max_seq_len, head_dim]
+        # 计算并缓存每个角度的余弦值和正弦值
         pass
 
     def forward(self, x: torch.Tensor, seq_len: int) -> torch.Tensor:
@@ -467,22 +467,21 @@ class RoPE(nn.Module):
             rotated_x: 应用位置编码后的张量，形状相同
         """
         # Step 1: 从缓存获取对应位置的cos, sin
-        # cos = self.cos_cached[:seq_len]  # [seq_len, head_dim]
-        # sin = self.sin_cached[:seq_len]
+        # 从预计算的缓存中提取前seq_len个位置的余弦值和正弦值
+        # 形状均为 [seq_len, head_dim]
 
         # Step 2: 将x分解为两两一组
-        # x shape: [..., head_dim]
-        # 转换为: [..., head_dim/2, 2]
-        # x1 = x[..., 0::2]  # 偶数维度
-        # x2 = x[..., 1::2]  # 奇数维度
+        # 输入x的最后一个维度是head_dim
+        # 提取所有偶数索引位置的元素作为第一组(x1)
+        # 提取所有奇数索引位置的元素作为第二组(x2)
 
         # Step 3: 应用旋转
+        # 根据RoPE公式计算旋转后的两组值:
         # rotated_x1 = x1 * cos - x2 * sin
         # rotated_x2 = x1 * sin + x2 * cos
 
         # Step 4: 交错合并回原始形状
-        # output[..., 0::2] = rotated_x1
-        # output[..., 1::2] = rotated_x2
+        # 将旋转后的两组值交错放回原张量的偶数位置和奇数位置
         pass
 
     def rotate_half(self, x: torch.Tensor) -> torch.Tensor:
@@ -492,10 +491,9 @@ class RoPE(nn.Module):
         用于另一种等效的RoPE实现方式
         """
         # Step 1: 分割最后维度
-        # x1 = x[..., : x.shape[-1] // 2]
-        # x2 = x[..., x.shape[-1] // 2 :]
+        # 将最后一维从中间分成两部分
 
-        # Step 2: 交错重排: [-x2, x1]
+        # Step 2: 交错重排: 将后半部分的相反数与前半部分拼接
         pass
 
 

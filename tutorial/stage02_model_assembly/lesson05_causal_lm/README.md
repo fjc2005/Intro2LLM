@@ -332,28 +332,22 @@ class CausalLM(nn.Module):
         self.config = config
 
         # Step 1: Token Embedding
-        # self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)
+        # 初始化词嵌入层，词表大小为vocab_size，嵌入维度为hidden_size
 
         # Step 2: 多层Transformer Block
-        # self.layers = nn.ModuleList([
-        #     TransformerBlock(config) for _ in range(config.num_hidden_layers)
-        # ])
+        # 创建包含num_hidden_layers个Transformer块的模块列表
 
         # Step 3: 最终归一化
-        # if config.use_rms_norm:
-        #     self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        # else:
-        #     self.norm = LayerNorm(config.hidden_size, eps=config.rms_norm_eps)
+        # 根据配置选择RMSNorm或LayerNorm作为最终的归一化层
 
         # Step 4: LM Head (输出投影)
-        # self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        # 初始化一个线性层，将隐藏状态映射到词表空间，不使用偏置项
 
         # Step 5: 权重共享 (如果配置启用)
-        # if config.tie_word_embeddings:
-        #     self.lm_head.weight = self.embed_tokens.weight
+        # 如果启用权重共享，将LM Head的权重与词嵌入层的权重绑定
 
         # Step 6: 初始化
-        # self._init_weights()
+        # 调用权重初始化方法
 
         pass
 
@@ -383,26 +377,20 @@ class CausalLM(nn.Module):
             past_key_values: 更新后的KV缓存 (如果use_cache=True)
         """
         # Step 1: Embedding
-        # hidden_states = self.embed_tokens(input_ids)
+        # 将输入token IDs通过词嵌入层转换为隐藏状态向量
 
         # Step 2: 逐层通过Transformer Block
-        # next_cache = [] if use_cache else None
-        # for i, layer in enumerate(self.layers):
-        #     past_kv = past_key_values[i] if past_key_values is not None else None
-        #     hidden_states, present_kv = layer(
-        #         hidden_states,
-        #         attention_mask=attention_mask,
-        #         past_key_value=past_kv,
-        #         use_cache=use_cache,
-        #     )
-        #     if use_cache:
-        #         next_cache.append(present_kv)
+        # 如果启用缓存，初始化空列表存储每层的KV缓存
+        # 遍历每一层Transformer Block:
+        #   - 获取该层之前的KV缓存(如果存在)
+        #   - 将隐藏状态传入当前层，传入attention掩码和KV缓存
+        #   - 如果启用缓存，将当前层的KV缓存添加到列表
 
         # Step 3: 最终归一化
-        # hidden_states = self.norm(hidden_states)
+        # 将最后一层的输出通过最终的归一化层
 
         # Step 4: LM Head投影
-        # logits = self.lm_head(hidden_states)
+        # 将归一化后的隐藏状态通过语言模型头，映射到词表维度的logits
 
         # Step 5: 返回结果
         pass
@@ -436,58 +424,45 @@ class CausalLM(nn.Module):
             output_ids: 生成的完整序列 [batch, seq_len + max_new_tokens]
         """
         # Step 1: 初始化
-        # batch_size = input_ids.shape[0]
-        # device = input_ids.device
-        # past_key_values = None
+        # 获取批次大小和设备信息
+        # 初始化KV缓存为None
 
         # Step 2: 自回归生成循环
-        # for _ in range(max_new_tokens):
-        #     # 2.1 前向传播 (使用KV缓存)
-        #     outputs = self.forward(
-        #         input_ids if past_key_values is None else input_ids[:, -1:],
-        #         past_key_values=past_key_values,
-        #         use_cache=True,
-        #     )
-        #     logits, past_key_values = outputs
+        # 迭代max_new_tokens次:
+        #   2.1 前向传播 (使用KV缓存)
+        #       如果是第一次迭代，传入完整的input_ids
+        #       否则只传入最后一个位置的token ID以利用KV缓存
+        #       获取logits和更新后的KV缓存
         #
-        #     # 2.2 取最后一个位置的logits
-        #     next_token_logits = logits[:, -1, :]  # [batch, vocab_size]
+        #   2.2 取最后一个位置的logits
+        #       从输出logits中提取最后一个时间步的预测分数
         #
-        #     # 2.3 应用重复惩罚
-        #     # if repetition_penalty != 1.0:
-        #     #     next_token_logits = self._apply_repetition_penalty(
-        #     #         next_token_logits, input_ids, repetition_penalty
-        #     #     )
+        #   2.3 应用重复惩罚
+        #       如果重复惩罚系数不为1.0，对已生成token的logits进行调整
+        #       对正logits除以惩罚系数，负logits乘以惩罚系数
         #
-        #     # 2.4 应用温度
-        #     # if temperature != 1.0:
-        #     #     next_token_logits = next_token_logits / temperature
+        #   2.4 应用温度
+        #       如果温度不为1.0，将logits除以温度参数
+        #       温度>1使分布更平缓，<1使分布更尖锐
         #
-        #     # 2.5 应用Top-k
-        #     # if top_k > 0:
-        #     #     indices_to_remove = next_token_logits < torch.topk(next_token_logits, top_k)[0][..., -1, None]
-        #     #     next_token_logits[indices_to_remove] = float('-inf')
+        #   2.5 应用Top-k
+        #       如果top_k大于0，只保留概率最高的k个token
+        #       其余token的logits设为负无穷
         #
-        #     # 2.6 应用Top-p
-        #     # if top_p < 1.0:
-        #     #     sorted_logits, sorted_indices = torch.sort(next_token_logits, descending=True)
-        #     #     cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
-        #     #     sorted_indices_to_remove = cumulative_probs > top_p
-        #     #     sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-        #     #     sorted_indices_to_remove[..., 0] = False
-        #     #     indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-        #     #     next_token_logits[indices_to_remove] = float('-inf')
+        #   2.6 应用Top-p (Nucleus Sampling)
+        #       如果top_p小于1.0，按概率降序排序
+        #       计算累积概率，找到使累积概率达到top_p的最小token集合
+        #       将集合外的token的logits设为负无穷
         #
-        #     # 2.7 采样
-        #     # probs = F.softmax(next_token_logits, dim=-1)
-        #     # next_token = torch.multinomial(probs, num_samples=1)  # [batch, 1]
+        #   2.7 采样
+        #       对处理后的logits应用softmax得到概率分布
+        #       使用多项式采样从概率分布中采样下一个token
         #
-        #     # 2.8 拼接到序列
-        #     # input_ids = torch.cat([input_ids, next_token], dim=1)
+        #   2.8 拼接到序列
+        #       将采样的token拼接到输入序列末尾
         #
-        #     # 2.9 检查是否生成EOS
-        #     # if eos_token_id is not None and (next_token == eos_token_id).all():
-        #     #     break
+        #   2.9 检查是否生成EOS
+        #       如果生成了结束标记且所有样本都生成，则提前退出循环
 
         # Step 3: 返回完整序列
         pass

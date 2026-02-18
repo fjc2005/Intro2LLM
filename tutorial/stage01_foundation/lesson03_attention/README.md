@@ -319,30 +319,29 @@ class ScaledDotProductAttention(nn.Module):
             attn_weights: [batch, num_heads, seq_len, seq_len]
         """
         # Step 1: 获取维度信息
-        # batch_size, num_heads, seq_len, head_dim = q.shape
+        # 从输入张量q的形状中提取批次大小、头数、序列长度和头维度
 
         # Step 2: 计算注意力分数 Q @ K^T
-        # scores = torch.matmul(q, k.transpose(-2, -1))
-        # scores shape: [batch, num_heads, seq_len, seq_len]
+        # 将q与k的转置进行矩阵乘法，计算每对位置间的相似度
+        # 结果形状: [batch, num_heads, seq_len, seq_len]
 
         # Step 3: 缩放
-        # scale = math.sqrt(head_dim)
-        # scores = scores / scale
+        # 根据公式将分数除以头维度平方根进行缩放
+        # 目的是防止点积值过大导致softmax梯度消失
 
         # Step 4: 应用掩码 (如果提供)
-        # if mask is not None:
-        #     scores = scores + mask
-        # mask中的-inf会使softmax后对应位置为0
+        # 如果提供了掩码张量，将其加到分数上
+        # 掩码中负无穷大的值会使softmax后对应位置的概率趋近于零
 
-        # Step 5: Softmax
-        # attn_weights = F.softmax(scores, dim=-1)
+        # Step 5: Softmax归一化
+        # 对最后一个维度应用softmax函数，将分数转换为概率分布
+        # 每个位置对所有位置的注意力权重之和为1
 
         # Step 6: Dropout (如果提供)
-        # if dropout is not None:
-        #     attn_weights = dropout(attn_weights)
+        # 如果提供了dropout层，以一定概率随机将部分注意力权重置零
 
         # Step 7: 加权求和
-        # output = torch.matmul(attn_weights, v)
+        # 将注意力权重与v进行矩阵乘法，得到加权的输出表示
 
         pass
 
@@ -366,23 +365,21 @@ class MultiHeadAttention(nn.Module):
     ):
         super().__init__()
         # Step 1: 保存配置
-        # self.hidden_size = hidden_size
-        # self.num_heads = num_attention_heads
-        # self.num_kv_heads = num_key_value_heads or num_attention_heads
-        # self.head_dim = hidden_size // num_attention_heads
-        # self.num_kv_groups = num_attention_heads // self.num_kv_heads
+        # 保存隐藏层大小、注意力头数、KV头数等配置
+        # 计算每个头的维度: hidden_size / num_attention_heads
+        # 计算KV组数: num_attention_heads / num_kv_heads
 
         # Step 2: 创建Q、K、V投影层
-        # q_proj: [hidden_size, num_heads * head_dim] = [hidden_size, hidden_size]
-        # k_proj: [hidden_size, num_kv_heads * head_dim]
-        # v_proj: [hidden_size, num_kv_heads * head_dim]
-        # o_proj: [hidden_size, hidden_size]
+        # Q投影: 输入维度hidden_size，输出维度num_heads * head_dim
+        # K投影: 输入维度hidden_size，输出维度num_kv_heads * head_dim
+        # V投影: 输入维度hidden_size，输出维度num_kv_heads * head_dim
+        # O投影: 输入维度hidden_size，输出维度hidden_size
 
         # Step 3: 可选的RoPE
-        # if use_rope:
-        #     self.rope = RoPE(self.head_dim, max_position_embeddings, rope_base)
+        # 如果启用，创建旋转位置编码模块，传入head_dim等参数
 
         # Step 4: Dropout
+        # 创建dropout层用于注意力权重的随机置零
         pass
 
     def forward(
@@ -406,54 +403,40 @@ class MultiHeadAttention(nn.Module):
         batch_size, seq_len, _ = hidden_states.shape
 
         # Step 1: 线性投影得到Q、K、V
-        # q = self.q_proj(hidden_states)
-        # k = self.k_proj(hidden_states)
-        # v = self.v_proj(hidden_states)
-        # Shape: [batch, seq_len, num_heads*head_dim]或[num_kv_heads*head_dim]
+        # 将隐藏状态通过Q、K、V的线性投影层
+        # Q输出形状: [batch, seq_len, num_heads*head_dim]
+        # K和V输出形状: [batch, seq_len, num_kv_heads*head_dim]
 
         # Step 2: 重塑为多头形式
-        # q = q.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-        # k = k.view(batch_size, seq_len, self.num_kv_heads, self.head_dim).transpose(1, 2)
-        # v = v.view(batch_size, seq_len, self.num_kv_heads, self.head_dim).transpose(1, 2)
-        # Shape: [batch, num_heads, seq_len, head_dim] 或 [batch, num_kv_heads, ...]
+        # 将Q、K、V重塑为四维张量[batch, seq_len, num_heads, head_dim]
+        # 然后交换维度1和2，变为[batch, num_heads, seq_len, head_dim]
 
         # Step 3: 应用RoPE (如果启用)
-        # if hasattr(self, 'rope'):
-        #     q, k = self.rope(q, k)
+        # 如果模型配置了旋转位置编码，对Q和K应用位置编码
 
         # Step 4: 处理KV缓存
-        # if past_key_value is not None:
-        #     past_k, past_v = past_key_value
-        #     k = torch.cat([past_k, k], dim=2)  # 在seq_len维度拼接
-        #     v = torch.cat([past_v, v], dim=2)
-        # kv_seq_len = k.shape[2]
+        # 如果提供了过去的K和V，将当前K和V与历史缓存拼接
+        # 在序列长度维度进行拼接
+        # 更新后的K和V序列长度会增加
 
         # Step 5: GQA - 扩展K、V以匹配Q头数
-        # if self.num_kv_groups > 1:
-        #     k = k.repeat_interleave(self.num_kv_groups, dim=1)
-        #     v = v.repeat_interleave(self.num_kv_groups, dim=1)
-        # Now k, v shape: [batch, num_heads, kv_seq_len, head_dim]
+        # 如果KV头数少于Q头数，使用重复插值方法扩展K和V
+        # 使每个Query头都有对应的Key和Value
 
         # Step 6: 创建因果掩码 (如果是训练或生成阶段)
-        # if attention_mask is None and self.training:
-        #     causal_mask = torch.triu(
-        #         torch.full((seq_len, kv_seq_len), float('-inf')),
-        #         diagonal=1
-        #     ).to(hidden_states.device)
-        #     attention_mask = causal_mask
+        # 如果没有提供注意力掩码且处于训练模式，创建上三角掩码
+        # 上三角部分(不含对角线)填充负无穷，表示未来位置不可见
 
         # Step 7: 计算注意力
-        # attn_output, attn_weights = scaled_dot_product_attention(
-        #     q, k, v, mask=attention_mask
-        # )
-        # attn_output shape: [batch, num_heads, seq_len, head_dim]
+        # 调用缩放点积注意力函数，传入Q、K、V和掩码
+        # 输出注意力结果和权重
 
         # Step 8: 合并多头
-        # attn_output = attn_output.transpose(1, 2).contiguous()
-        # attn_output = attn_output.view(batch_size, seq_len, self.hidden_size)
+        # 交换注意力输出的维度1和2
+        # 调用contiguous确保内存连续，然后reshape为[batch, seq_len, hidden_size]
 
         # Step 9: 输出投影
-        # output = self.o_proj(attn_output)
+        # 将合并后的注意力结果通过输出投影层
 
         # Step 10: 返回结果和KV缓存(如果需要)
         pass

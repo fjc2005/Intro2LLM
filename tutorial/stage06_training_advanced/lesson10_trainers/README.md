@@ -91,19 +91,30 @@ class BaseTrainer:
 ### 2.2 AMP自动混合精度
 
 ```python
+# 导入混合精度相关模块
 from torch.cuda.amp import autocast, GradScaler
 
-scaler = GradScaler()
+# Step 1: 创建梯度缩放器
+# GradScaler用于自动缩放损失值，防止FP16梯度下溢
+# 初始缩放因子通常设为动态值
 
-with autocast(dtype=torch.float16):
-    # 前向传播使用FP16
-    outputs = model(inputs)
-    loss = criterion(outputs, targets)
+# Step 2: 自动混合精度前向传播
+# autocast上下文管理器自动决定哪些操作使用FP16
+# 前向传播使用FP16可以减少显存和加速计算
 
-# 缩放梯度防止下溢
-scaler.scale(loss).backward()
-scaler.step(optimizer)
-scaler.update()
+# Step 3: 缩放反向传播
+# 使用scaler.scale()对损失进行缩放后再反向传播
+# 缩放后的梯度值更大，避免下溢问题
+
+# Step 4: 梯度裁剪(可选)
+# 对缩放后的梯度进行裁剪
+
+# Step 5: 参数更新
+# 使用scaler.step()更新参数
+# scaler会自动反缩放梯度
+
+# Step 6: 更新缩放因子
+# 根据梯度状态更新缩放因子
 ```
 
 ---
@@ -132,7 +143,17 @@ scaler.update()
 
 ```python
 # 防止梯度爆炸
-torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+# 使用torch.nn.utils.clip_grad_norm_函数
+
+# 原理:
+# 计算所有参数梯度的总范数
+# 如果总范数超过max_norm，按比例缩放所有梯度
+# 使得缩放后的总范数等于max_norm
+
+# 参数:
+# - model.parameters(): 模型所有参数
+# - max_norm: 最大梯度范数(通常1.0)
+# 返回值: 梯度范数(用于日志记录)
 ```
 
 ---
@@ -142,23 +163,28 @@ torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 ### 4.1 保存检查点
 
 ```python
-checkpoint = {
-    'epoch': epoch,
-    'model_state_dict': model.state_dict(),
-    'optimizer_state_dict': optimizer.state_dict(),
-    'scheduler_state_dict': scheduler.state_dict(),
-    'loss': loss,
-}
-torch.save(checkpoint, 'checkpoint.pt')
+# 检查点包含的内容:
+# 1. epoch: 当前训练轮数
+# 2. model_state_dict: 模型的参数字典
+# 3. optimizer_state_dict: 优化器状态(动量等)
+# 4. scheduler_state_dict: 学习率调度器状态
+# 5. loss: 当前损失值
+
+# 实现思路:
+# Step 1: 创建字典，保存所有需要恢复的信息
+# Step 2: 使用torch.save保存到文件
+# 建议命名: checkpoint-{step}.pt 或 checkpoint-{epoch}.pt
 ```
 
 ### 4.2 加载检查点
 
 ```python
-checkpoint = torch.load('checkpoint.pt')
-model.load_state_dict(checkpoint['model_state_dict'])
-optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-start_epoch = checkpoint['epoch']
+# 实现思路:
+# Step 1: 使用torch.load加载检查点文件
+# Step 2: 从检查点恢复模型参数
+# Step 3: (可选)恢复优化器状态
+# Step 4: (可选)恢复调度器状态
+# Step 5: 返回epoch用于继续训练
 ```
 
 ---

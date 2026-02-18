@@ -47,11 +47,16 @@ Softmax: p_i = exp(z_i) / Σ_j exp(z_j)
 ```python
 # 方法1: 直接使用CrossEntropyLoss (推荐)
 # 内部已实现log-softmax + nll_loss的稳定版本
-loss = F.cross_entropy(logits, targets)
+# 关键: 内部会自动进行softmax稳定化处理
 
 # 方法2: 手动实现稳定版本
-log_probs = F.log_softmax(logits, dim=-1)  # 稳定的log-softmax
-loss = F.nll_loss(log_probs, targets)      # 负对数似然
+# Step 1: 计算log_softmax
+# 使用F.log_softmax函数，它会自动处理数值稳定性
+# 原理: log_softmax(x) = x - log(sum(exp(x)))
+
+# Step 2: 计算负对数似然
+# 使用F.nll_loss函数，取log_probs中target索引位置的值为loss
+# 注意: targets是类别索引，不是one-hot编码
 ```
 
 ### 1.3 Label Smoothing
@@ -230,17 +235,25 @@ Phase 2: Cosine Decay (余弦衰减)
 ### 4.2 其他调度策略
 
 ```python
-# Linear Decay
-lr = base_lr * (1 - step / total_steps)
+# Linear Decay (线性衰减)
+# 公式: lr = base_lr * (1 - step / total_steps)
+# 特点: 学习率随步数线性下降
+# 步数越多，lr越小，趋近于0
 
-# Polynomial Decay
-lr = base_lr * (1 - step / total_steps) ** power
+# Polynomial Decay (多项式衰减)
+# 公式: lr = base_lr * (1 - step / total_steps) ** power
+# 特点: power>1时衰减更慢，power<1时衰减更快
+# power=1时退化为线性衰减
 
-# Constant with Warmup
-lr = base_lr  (after warmup)
+# Constant with Warmup (恒定学习率)
+# 预热后保持固定学习率
+# 公式: lr = base_lr (after warmup)
+# 特点: 预热后不再衰减
 
-# Inverse Square Root
-lr = base_lr / sqrt(step)
+# Inverse Square Root (平方根倒数衰减)
+# 公式: lr = base_lr / sqrt(step)
+# 特点: 初期快速下降，后期趋于稳定
+# 常用在NLP任务中
 ```
 
 ---

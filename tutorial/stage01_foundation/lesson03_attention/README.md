@@ -182,21 +182,26 @@ X ──→ Linear Projection                ├──→ Concat ──→ Linea
 ```python
 # 方法1: 使用torch.triu创建上三角掩码
 def create_causal_mask(seq_len):
-    # 创建上三角矩阵(不含对角线)为True
-    mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
-    # 将True位置填充为-∞
-    causal_mask = torch.zeros(seq_len, seq_len)
-    causal_mask.masked_fill_(mask, float('-inf'))
-    return causal_mask
+    # Step 1: 创建上三角矩阵
+    # 创建一个上三角矩阵，使未来位置(右上角)为True，当前和历史位置为False
+    # 用于标记需要mask的位置
+
+    # Step 2: 填充负无穷
+    # 创建一个与序列长度相同的零矩阵
+    # 将上三角位置(需要mask的位置)填充为负无穷(-inf)
+    # 这样在注意力计算时，这些位置的分数会被设为负无穷
+
+    # 返回因果掩码，形状: [seq_len, seq_len]
+    pass
 
 # 方法2: 使用torch.full直接创建
-seq_len = 4
-causal_mask = torch.full((seq_len, seq_len), float('-inf'))
-causal_mask = torch.triu(causal_mask, diagonal=1)
-# 结果: [[0, -inf, -inf, -inf],
-#        [0, 0, -inf, -inf],
-#        [0, 0, 0, -inf],
-#        [0, 0, 0, 0]]
+# 创建一个全为负无穷的矩阵
+# 使用triu取上三角部分(不含对角线)
+# 结果应该是下三角为0，对角线和上三角为-inf:
+# [[0, -inf, -inf, -inf],
+#  [0, 0, -inf, -inf],
+#  [0, 0, 0, -inf],
+#  [0, 0, 0, 0]]
 ```
 
 ### 3.3 掩码在注意力中的应用

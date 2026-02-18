@@ -129,37 +129,41 @@ def save_checkpoint(
     loss,
     output_dir,
 ):
-    checkpoint = {
-        'epoch': epoch,
-        'step': step,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
-        'loss': loss,
-    }
+    """
+    保存训练检查点
 
-    path = f"{output_dir}/checkpoint-{step}"
-    torch.save(checkpoint, f"{path}/pytorch_model.bin")
+    检查点内容:
+    - epoch: 当前训练轮数
+    - step: 当前训练步数
+    - model_state_dict: 模型参数
+    - optimizer_state_dict: 优化器状态(动量、学习率等)
+    - scheduler_state_dict: 调度器状态
+    - loss: 当前损失值
 
-    # 保存配置
-    config.save_pretrained(path)
+    实现思路:
+    Step 1: 创建包含所有状态的字典
+    Step 2: 构造保存路径 (如 outputs/checkpoint-1000)
+    Step 3: 使用torch.save保存到文件
+    Step 4: (可选)保存模型配置和tokenizer
+    """
+    pass
 ```
 
 ### 4.2 加载检查点
 
 ```python
 def load_checkpoint(checkpoint_path, model, optimizer=None, scheduler=None):
-    checkpoint = torch.load(f"{checkpoint_path}/pytorch_model.bin")
+    """
+    加载训练检查点
 
-    model.load_state_dict(checkpoint['model_state_dict'])
-
-    if optimizer and 'optimizer_state_dict' in checkpoint:
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-
-    if scheduler and checkpoint.get('scheduler_state_dict'):
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-
-    return checkpoint['epoch'], checkpoint['step'], checkpoint['loss']
+    实现思路:
+    Step 1: 使用torch.load加载检查点文件
+    Step 2: 恢复模型参数
+    Step 3: (可选)恢复优化器状态，继续训练
+    Step 4: (可选)恢复调度器状态
+    Step 5: 返回epoch、step、loss用于日志
+    """
+    pass
 ```
 
 ---

@@ -203,11 +203,19 @@ def process_dpo_example(example):
 
 ```python
 def length_filter(examples, min_length=10, max_length=100000):
-    """过滤过短或过长的文档"""
-    return [
-        ex for ex in examples
-        if min_length <= len(ex["text"]) <= max_length
-    ]
+    """
+    过滤过短或过长的文档
+
+    原理:
+    - 过短文档可能缺乏语义信息
+    - 过长文档可能包含噪声或超出模型处理能力
+
+    实现思路:
+    - 遍历所有样本
+    - 检查文本长度是否在指定范围内
+    - 保留符合条件的样本
+    """
+    pass
 ```
 
 ### 4.2 重复过滤
@@ -215,94 +223,110 @@ def length_filter(examples, min_length=10, max_length=100000):
 ```python
 # 精确重复检测
 def exact_deduplication(examples):
-    seen = set()
-    unique = []
-    for ex in examples:
-        text_hash = hash(ex["text"])
-        if text_hash not in seen:
-            seen.add(text_hash)
-            unique.append(ex)
-    return unique
+    """
+    精确去重
+
+    原理:
+    - 使用哈希函数将文本转换为固定长度的标识符
+    - 相同文本会产生相同的哈希值
+
+    实现思路:
+    - 创建集合存储已见哈希值
+    - 遍历样本，计算每个文本的哈希
+    - 如果哈希不在集合中，加入结果并记录哈希
+    - 否则跳过（这是重复样本）
+    """
+    pass
 
 # 模糊重复检测 (MinHash + LSH)
-from datasketch import MinHash, MinHashLSH
-
 def minhash_deduplication(examples, threshold=0.9):
     """
-    MinHash算法步骤:
+    MinHash模糊去重
+
+    原理:
+    - MinHash是一种估计Jaccard相似度的算法
+    - 相似文档会产生相似的签名
+
+    算法步骤:
     1. 将文档分词为n-grams
     2. 对每个n-gram计算多个hash值
     3. 取每个hash函数的最小值作为签名
     4. 相似文档的MinHash签名相似
+
+    实现思路:
+    - 初始化LSH(局部敏感哈希)索引
+    - 对每个样本计算MinHash签名
+    - 查询是否有相似文档
+    - 如果没有，加入结果并插入索引
     """
-    lsh = MinHashLSH(threshold=threshold, num_perm=128)
-
-    for i, ex in enumerate(examples):
-        m = MinHash(num_perm=128)
-        # 添加n-grams
-        for ngram in get_ngrams(ex["text"], n=5):
-            m.update(ngram.encode('utf8'))
-
-        # 检查是否有相似文档
-        result = lsh.query(m)
-        if not result:  # 无相似文档
-            lsh.insert(i, m)
-            yield ex
+    pass
 ```
 
 ### 4.3 质量评分
 
 ```python
 def quality_score(text):
-    """多维度质量评分"""
-    scores = {}
+    """
+    多维度质量评分
 
-    # 1. 语言模型困惑度 (Perplexity)
-    scores["perplexity"] = compute_ppl(text)
+    评分维度:
+    1. 语言模型困惑度 (Perplexity)
+       - 使用预训练语言模型计算文本的困惑度
+       - 过高或过低的困惑度都可能是低质量信号
 
-    # 2. 可读性评分
-    scores["readability"] = flesch_reading_ease(text)
+    2. 可读性评分
+       - 使用Flesch阅读容易度等指标
+       - 衡量文本的可理解程度
 
-    # 3. 符号比例
-    scores["symbol_ratio"] = count_symbols(text) / len(text)
+    3. 符号比例
+       - 计算特殊符号在文本中的占比
+       - 异常比例可能表示格式问题
 
-    # 4. 行长度方差 (检测表格/代码)
-    lines = text.split('\n')
-    scores["line_variance"] = variance([len(l) for l in lines])
+    4. 行长度方差
+       - 检测表格或代码块
+       - 过于规则的行长度可能是结构化数据
 
-    # 综合评分
-    final_score = weighted_average(scores)
-    return final_score
+    综合评分:
+    - 对各维度得分进行加权平均
+    """
+    pass
 
 def filter_by_quality(examples, min_score=0.5):
-    return [ex for ex in examples if quality_score(ex["text"]) >= min_score]
+    """
+    根据质量评分过滤
+
+    实现思路:
+    - 遍历所有样本
+    - 计算每个样本的质量评分
+    - 只保留评分高于阈值的样本
+    """
+    pass
 ```
 
 ### 4.4 敏感内容过滤
 
 ```python
 def toxic_content_filter(examples):
-    """基于规则或模型的有害内容过滤"""
-    # 规则匹配
-    blocked_patterns = [
-        r"(暴力|色情|歧视)",
-        # ...
-    ]
+    """
+    过滤有害内容
 
-    # 分类器检测
-    toxicity_classifier = load_classifier()
+    方法1: 基于规则匹配
+    - 维护敏感词/模式列表
+    - 使用正则表达式检测
 
-    def is_safe(text):
-        # 规则检查
-        for pattern in blocked_patterns:
-            if re.search(pattern, text):
-                return False
+    方法2: 基于分类器
+    - 训练或使用预训练的有害内容检测模型
+    - 对文本进行二分类判断
 
-        # 模型预测
-        toxicity_score = toxicity_classifier.predict(text)
-        return toxicity_score < 0.5
-
-    return [ex for ex in examples if is_safe(ex["text"])]
+    实现思路:
+    - 创建敏感模式列表
+    - 加载预训练分类器
+    - 对每个样本:
+      - 先用规则检查
+      - 再用分类器预测
+    - 只保留安全样本
+    """
+    pass
 ```
 
 ---

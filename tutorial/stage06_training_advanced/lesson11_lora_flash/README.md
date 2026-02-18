@@ -258,21 +258,26 @@ def flash_attention_forward(
 
     使用PyTorch 2.0+内置的scaled_dot_product_attention
     """
-    Flash Attention前向传播
+    # 实现思路:
 
-    使用PyTorch 2.0+内置的scaled_dot_product_attention
-    """
     # Step 1: 检查支持
-    # 检查函数是否支持scaled_dot_product_attention
-    # 如果支持，调用该函数传入Q、K、V和causal参数
-    # 该函数会自动选择最优实现(Flash Attention、Memory-Efficient Attention等)
+    # 检查PyTorch版本是否支持flash attention
+    # PyTorch 2.0+提供了torch.nn.functional.scaled_dot_product_attention
 
-    # Step 2: 回退到标准attention
-    # 计算Q与K转置的矩阵乘法，除以头维度的平方根进行缩放
-    # 如果是因果注意力，应用因果掩码
-    # 对分数应用softmax得到注意力权重
-    # 将注意力权重与V相乘得到输出
+    # Step 2: 调用高效实现
+    # 使用F.scaled_dot_product_attention函数
+    # 传入参数: q, k, v, causal_mask(如果需要因果)
+    # 该函数会自动选择最优后端:
+    #   - Flash Attention (最快)
+    #   - Memory-Efficient Attention
+    #   - 标准实现(回退方案)
 
+    # 核心公式:
+    #   output = softmax(QK^T / sqrt(d_k)) @ V
+    #   但以分块方式计算，避免O(N^2)内存
+
+    # Step 3: 回退处理
+    # 如果当前环境不支持高效实现，手动实现标准attention
     pass
 ```
 

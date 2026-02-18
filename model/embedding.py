@@ -24,22 +24,37 @@ class TokenEmbedding(nn.Module):
     将离散的 token ID 转换为连续的向量表示。
     这是模型的入口，每个 token 对应一个可学习的向量。
 
+    嵌入本质上是一个可学习的查找表 (Lookup Table)：
+        - 形状：[vocab_size, hidden_size]
+        - 第 i 行表示第 i 个 token 的向量表示
+        - 这个矩阵是模型的参数，通过反向传播学习得到
+
+    torch已经给出了预定义的nn.Embedding接口，但是为了深入理解原理,
+    我们在这个项目中要手动实现Embedding Layer：
+        - 使用 nn.Parameter 创建可学习参数矩阵
+        - 使用索引操作手动实现查表
+
     属性:
         vocab_size: 词表大小
         hidden_size: 嵌入维度
-        embedding: 形状 [vocab_size, hidden_size] 的嵌入矩阵
+        embedding_table: 形状 [vocab_size, hidden_size] 的嵌入矩阵
     """
 
     def __init__(self, vocab_size: int, hidden_size: int):
         """
         初始化 Token 嵌入层。
 
+        这个函数需要实现的内容有：
+        1. 调用父类的初始化方法
+        2. 创建一个形状为 [vocab_size, hidden_size] 的嵌入矩阵作为参数
+        3. 使用 nn.Parameter 包装，使其成为可学习的模型参数
+        4. 对嵌入矩阵进行初始化，通常使用正态分布，均值为0，标准差为0.02
+
+        注意：不要使用 nn.Embedding，而是直接创建一个 nn.Parameter。
+
         Args:
             vocab_size: 词表大小
             hidden_size: 嵌入维度
-
-        嵌入矩阵形状: [vocab_size, hidden_size]
-        通常使用正态分布初始化，均值为 0，标准差为 0.02
         """
         super().__init__()
         pass
@@ -48,13 +63,18 @@ class TokenEmbedding(nn.Module):
         """
         将 token ID 转换为嵌入向量。
 
+        手动实现查表操作：
+        1. 接收形状为 [batch_size, seq_len] 的 token ID 张量
+        2. 使用索引操作 self.embedding_table[input_ids] 从嵌入矩阵中提取对应向量
+        3. 返回形状为 [batch_size, seq_len, hidden_size] 的嵌入向量
+
+        注意：不要调用 nn.Embedding 的 forward，而是手动使用索引查表。
+
         Args:
             input_ids: token ID，形状 [batch_size, seq_len]
 
         Returns:
             嵌入向量，形状 [batch_size, seq_len, hidden_size]
-
-        操作: 使用 nn.Embedding 进行查表
         """
         pass
 

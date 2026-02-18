@@ -147,4 +147,32 @@ utils/          # Checkpoint, W&B, early stopping, mixed precision, flash attent
 configs/        # Model configs (tiny_config, qwen3_0.5b, lora_config)
 scripts/        # Training and evaluation entry points
 tests/          # Unit tests with pytest
+tutorial/       # 6-stage, 12-lesson teaching material with testcases
+```
+
+## Tutorial Structure
+
+This is an educational project with a structured learning path in `tutorial/`:
+
+### Learning Paths
+- **MVP Path**: Lessons 1→2→3→4→5→7→10 (fastest overview)
+- **Standard Path**: All 12 lessons in order
+- **Research Path**: Lessons 8→9→11 (alignment + advanced topics)
+
+### 6 Stages (12 Lessons)
+1. **Foundation** (Lessons 1-3): Config, Tokenizer, Norm, Embedding, Attention
+2. **Model Assembly** (Lessons 4-5): FFN, TransformerBlock, CausalLM
+3. **Data Processing** (Lesson 6): Datasets, filtering
+4. **Optimization** (Lesson 7): Loss functions, optimizers
+5. **Alignment** (Lessons 8-9): DPO, GRPO, PPO
+6. **Advanced** (Lessons 10-12): Trainers, LoRA, FlashAttention, Evaluation
+
+### Running Tutorial Tests
+```bash
+# Run all tutorial tests
+pytest tutorial/
+
+# Run specific lesson tests
+pytest tutorial/stage01_foundation/lesson02_norm_embedding/testcases/basic_test.py -v
+pytest tutorial/stage01_foundation/lesson02_norm_embedding/testcases/advanced_test.py -v
 ```

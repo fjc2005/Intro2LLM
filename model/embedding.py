@@ -103,16 +103,16 @@ class PositionalEncoding(nn.Module):
         创建位置编码矩阵。
 
         计算步骤:
-            Step 1: 创建位置向量 position = [0, 1, 2, ..., max_len-1]
+            Step 1: 创建一个从 0 到 max_len-1 的位置索引向量
                     形状 [max_len, 1]
 
             Step 2: 创建维度除数 div_term
-                    div_term = 10000^(-2i/d_model) for i in [0, 2, 4, ...]
+                    公式: div_term = 10000 的 -2i/d_model 次方，其中 i = 0, 2, 4, ...
                     形状 [d_model/2]
 
             Step 3: 计算 sin 和 cos 编码
-                    pe[:, 0::2] = sin(position * div_term)  # 偶数维度
-                    pe[:, 1::2] = cos(position * div_term)  # 奇数维度
+                    对偶数位置 (2i) 应用正弦编码: sin(position * div_term)
+                    对奇数位置 (2i+1) 应用余弦编码: cos(position * div_term)
 
         Returns:
             位置编码矩阵，形状 [max_len, d_model]
@@ -171,7 +171,7 @@ class RoPE(nn.Module):
 
         预计算:
             inv_freq: 频率倒数，形状 [dim/2]
-            inv_freq[i] = 1.0 / (base ^ (2i/dim))
+            公式: inv_freq[i] = base 的 -2i/dim 次方分之一
         """
         super().__init__()
         # 预计算 inv_freq (频率倒数)
@@ -189,16 +189,15 @@ class RoPE(nn.Module):
 
         计算步骤:
             Step 1: 计算频率 freqs
-                    freqs = position_ids[:, :, None] * inv_freq[None, None, :]
-                    形状 [batch, seq_len, dim/2]
+                    将位置 ID 与频率倒数进行外积运算
+                    广播到形状 [batch, seq_len, dim/2]
 
             Step 2: 将 freqs 扩展为复数形式
-                    freqs = torch.cat([freqs, freqs], dim=-1)
-                    形状 [batch, seq_len, dim]
+                    为了同时计算 sin 和 cos，将频率复制拼接
+                    形状变为 [batch, seq_len, dim]
 
             Step 3: 计算 cos 和 sin
-                    cos = cos(freqs)
-                    sin = sin(freqs)
+                    对频率分别计算余弦和正弦值
                     形状 [batch, seq_len, dim]
 
         Returns:
@@ -211,8 +210,7 @@ class RoPE(nn.Module):
         """
         将张量的后一半维度旋转。
 
-        这是 RoPE 的核心操作，实现:
-            [-x2, x1] 的变换
+        这是 RoPE 的核心操作，实现将向量后半部分取负并与前半部分交换位置。
 
         Args:
             x: 输入张量，形状 [..., dim]
@@ -221,12 +219,12 @@ class RoPE(nn.Module):
             旋转后的张量，形状同输入
 
         操作:
-            Step 1: 将最后一维分成两半
-                    x1 = x[..., :dim/2]
-                    x2 = x[..., dim/2:]
+            Step 1: 将最后一维分成前后两半
+                    前半部分 x1 和后半部分 x2
 
-            Step 2: 构造 [-x2, x1]
-                    先对 x2 取负，然后与 x1 拼接
+            Step 2: 构造旋转后的向量
+                    将后半部分取负，然后与前半部分拼接
+                    旋转后的向量形式为 [-x2, x1]
         """
         pass
 
@@ -250,12 +248,14 @@ class RoPE(nn.Module):
             (q_rot, k_rot): 旋转后的 Q 和 K
 
         操作步骤:
-            Step 1: unsqueeze cos/sin 以匹配 Q/K 的 heads 维度
-                    cos = cos[:, None, :, :]  # [batch, 1, seq, head_dim]
+            Step 1: 扩展 cos/sin 以匹配 Q/K 的 heads 维度
+                    在 heads 维度添加大小为 1 的维度以便广播
+                    cos 形状从 [batch, seq, head_dim] 变为 [batch, 1, seq, head_dim]
 
             Step 2: 应用旋转公式
-                    q_embed = (q * cos) + (rotate_half(q) * sin)
-                    k_embed = (k * cos) + (rotate_half(k) * sin)
+                    对 Query: q * cos + rotate_half(q) * sin
+                    对 Key: k * cos + rotate_half(k) * sin
+                    这里的 rotate_half 是将向量后半部分旋转 180 度
 
         边界条件:
             - cos/sin 的 batch 维度通过广播匹配

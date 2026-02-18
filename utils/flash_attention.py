@@ -86,33 +86,17 @@ class FlashAttention(nn.Module):
 
         流程:
             Step 1: 检查 Flash Attention 是否可用
-                    if not FLASH_ATTN_AVAILABLE:
-                        return self._fallback_attention(q, k, v)
+                    如果库未安装，回退到标准注意力实现
 
             Step 2: 检查输入格式
-                    # 确保输入是 [batch, seq, num_heads, head_dim]
+                    确保输入形状为 [batch, seq, num_heads, head_dim]
 
             Step 3: 调用 Flash Attention
-                    if attention_mask is None:
-                        # 标准情况
-                        output = flash_attn_func(
-                            q, k, v,
-                            dropout_p=self.dropout,
-                            softmax_scale=self.softmax_scale,
-                            causal=self.causal,
-                        )
-                    else:
-                        # 变长序列 (需要 cumsum 处理)
-                        output = flash_attn_varlen_func(
-                            q, k, v,
-                            cu_seqlens_q=cu_seqlens,
-                            cu_seqlens_k=cu_seqlens,
-                            max_seqlen_q=max_seqlen,
-                            max_seqlen_k=max_seqlen,
-                            dropout_p=self.dropout,
-                            softmax_scale=self.softmax_scale,
-                            causal=self.causal,
-                        )
+                    如果没有注意力掩码:
+                    - 调用标准 flash_attn_func 函数
+                    否则:
+                    - 调用变长版本 flash_attn_varlen_func
+                    - 需要提供序列长度累积信息
 
             Step 4: 返回输出
         """

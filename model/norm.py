@@ -65,12 +65,18 @@ class LayerNorm(nn.Module):
 
         计算步骤:
             Step 1: 保存原始数据类型，将输入转为 float32 以提高数值稳定性
-            Step 2: 计算最后一维的均值 mean = x.mean(dim=-1, keepdim=True)
-                    形状: [..., 1]
-            Step 3: 计算方差 var = x.var(dim=-1, keepdim=True, unbiased=False)
-                    形状: [..., 1]
-            Step 4: 标准化: x_norm = (x - mean) / sqrt(var + eps)
-            Step 5: 应用可学习参数: output = x_norm * weight + bias
+            Step 2: 计算最后一维的均值
+                    对输入张量沿最后一个维度计算均值
+                    结果形状: [..., 1]
+            Step 3: 计算方差
+                    沿最后一个维度计算方差 (使用无偏估计=False)
+                    结果形状: [..., 1]
+            Step 4: 标准化
+                    使用公式: (x - 均值) / sqrt(方差 + eps)
+                    即减去均值后除以标准差
+            Step 5: 应用可学习参数
+                    使用缩放系数 (gamma/weight) 乘以标准化后的值
+                    加上平移系数 (beta/bias)
             Step 6: 恢复原始数据类型
         """
         pass
@@ -130,21 +136,22 @@ class RMSNorm(nn.Module):
 
             Step 2: 计算均方值 (Mean Square)
                     对最后一个维度求平方的均值
-                    variance = x.pow(2).mean(dim=-1, keepdim=True)
+                    公式: MS = mean(x^2)
                     形状: [batch, seq_len, 1]
 
             Step 3: 计算 RMS 倒数 (Rsqrt)
-                    使用 rsqrt (reciprocal square root) 更高效
-                    inv_rms = rsqrt(variance + eps)
+                    使用 rsqrt (reciprocal square root) 计算平方根的倒数
+                    公式: inv_rms = 1 / sqrt(MS + eps)
                     形状: [batch, seq_len, 1]
 
             Step 4: 归一化
-                    hidden_states = x * inv_rms
-                    利用广播机制，[batch, seq_len, 1] 广播到 [batch, seq_len, hidden]
+                    将输入乘以 RMS 倒数，利用广播机制扩展维度
+                    公式: normalized = x * inv_rms
+                    weight 的形状 [hidden] 通过广播应用
 
             Step 5: 应用可学习缩放并恢复数据类型
-                    output = (hidden_states * self.weight).to(original_dtype)
-                    weight 的形状 [hidden] 通过广播应用
+                    使用可学习的缩放参数乘以归一化后的值
+                    然后转换回原始数据类型
 
             Step 6: 返回结果
 

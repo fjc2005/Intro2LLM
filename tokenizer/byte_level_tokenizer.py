@@ -164,15 +164,15 @@ class ByteLevelTokenizer(BPETokenizer):
 
         编码流程:
             Step 1: 转换为字节级表示
-                    byte_text = self._bytes_to_unicode(text)
+                    将文本转换为字节级别的 Unicode 表示
+                    这样可以处理任意 Unicode 字符而无需担心 OOV
 
             Step 2: 应用 BPE 编码
-                    # 与标准 BPE 相同，但在字节表示上进行
-                    tokens = []
-                    # ... BPE 算法 ...
+                    在字节表示上应用 BPE 合并算法
+                    将高频的字节对合并为新的 token
 
             Step 3: 转换为 IDs
-                    token_ids = [self.vocab[token] for token in tokens]
+                    将得到的 token 字符串映射到对应的词表 ID
 
             Step 4: 添加特殊 token 和截断
         """
@@ -194,13 +194,13 @@ class ByteLevelTokenizer(BPETokenizer):
 
         解码流程:
             Step 1: ID 转 token
-                    tokens = [self.inverse_vocab[id] for id in token_ids]
+                    将 token ID 映射回对应的 token 字符串
 
             Step 2: 拼接
-                    text = "".join(tokens)
+                    将 token 字符串拼接成单一的文本字符串
 
             Step 3: 字节级转原始文本
-                    text = self._unicode_to_bytes(text)
+                    将字节级 Unicode 表示转换回原始 UTF-8 文本
 
             Step 4: 处理特殊 token
         """

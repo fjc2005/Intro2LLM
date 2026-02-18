@@ -100,14 +100,14 @@ class DPOTrainer(Trainer):
         处理步骤:
             Step 1: 复制模型 (如果需要)
             Step 2: 设为评估模式
-                    ref_model.eval()
+                    调用 eval() 方法切换到评估模式
 
             Step 3: 冻结所有参数
-                    for param in ref_model.parameters():
-                        param.requires_grad = False
+                    设置所有参数 requires_grad = False
+                    确保不会计算和存储梯度
 
             Step 4: 移至设备
-                    ref_model.to(device)
+                    将模型移动到计算设备
 
             Step 5: 返回
         """

@@ -127,7 +127,7 @@ class ModelConfig:
         """
         计算每个注意力头的维度。
 
-        head_dim = hidden_size // num_attention_heads
+        head_dim 等于 hidden_size 除以 num_attention_heads
 
         这是注意力计算中 Q、K、V 向量的实际维度。
         所有注意力头的 head_dim 必须相等。
@@ -139,7 +139,7 @@ class ModelConfig:
         """
         计算 GQA 中的分组数。
 
-        num_key_value_groups = num_attention_heads // num_key_value_heads
+        num_key_value_groups 等于 num_attention_heads 除以 num_key_value_heads
 
         表示每个 KV 头被多少个 Q 头共享。
         例如: 32 个 Q 头，4 个 KV 头，则每组 8 个 Q 头共享 1 个 KV 头。

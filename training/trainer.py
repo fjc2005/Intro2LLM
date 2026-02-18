@@ -135,27 +135,27 @@ class Trainer:
 
         一般流程:
             Step 1: 前向传播
-                    outputs = model(**batch)
+                    将批次数据传入模型，获取模型输出
 
             Step 2: 计算损失
-                    loss = outputs.loss
+                    从模型输出中提取损失值
 
             Step 3: 梯度累积缩放 (如果需要)
-                    if gradient_accumulation_steps > 1:
-                        loss = loss / gradient_accumulation_steps
+                    如果使用梯度累积，将损失除以累积步数
+                    这样可以在小批量情况下模拟大批量训练
 
             Step 4: 反向传播
-                    loss.backward()
+                    执行损失的反向传播，计算梯度
 
             Step 5: 梯度裁剪 (如果需要)
-                    if max_grad_norm > 0:
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                    如果设置了最大梯度范数，对梯度进行裁剪
+                    防止梯度爆炸
 
             Step 6: 优化器步骤 (如果达到累积步数)
-                    if (step + 1) % gradient_accumulation_steps == 0:
-                        optimizer.step()
-                        lr_scheduler.step()  # 每步更新
-                        optimizer.zero_grad()
+                    如果达到梯度累积步数:
+                    - 执行优化器步骤更新参数
+                    - 更新学习率调度器
+                    - 清零梯度为下一步做准备
 
             Step 7: 返回指标
         """
@@ -170,25 +170,27 @@ class Trainer:
 
         流程:
             Step 1: 设置模型为评估模式
-                    model.eval()
+                    调用 model.eval() 切换到评估模式
+                    这会禁用 dropout 等训练特有的层
 
             Step 2: 禁用梯度计算
-                    with torch.no_grad():
+                    使用 torch.no_grad() 上下文管理器
+                    这可以节省显存并加速推理
 
             Step 3: 批次循环
                     total_loss = 0
-                    for batch in val_dataloader:
-                        Step 3.1: 移动批次到设备
-                        Step 3.2: 前向传播
-                        Step 3.3: 计算损失
-                        Step 3.4: 累加损失
+                    遍历验证数据加载器中的每个批次:
+                        - 将批次数据移动到计算设备
+                        - 执行前向传播获取输出
+                        - 计算损失值
+                        - 累加损失用于后续求平均
 
             Step 4: 计算平均指标
-                    avg_loss = total_loss / len(val_dataloader)
-                    perplexity = exp(avg_loss)
+                    计算平均损失和困惑度
+                    perplexity = exp(平均损失)
 
             Step 5: 恢复训练模式
-                    model.train()
+                    调用 model.train() 切换回训练模式
 
             Step 6: 返回指标
         """
@@ -215,25 +217,22 @@ class Trainer:
 
         流程:
             Step 1: 创建保存目录
-                    os.makedirs(output_dir, exist_ok=True)
+                    确保输出目录存在
 
             Step 2: 构建检查点字典
-                    checkpoint = {
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "lr_scheduler_state_dict": lr_scheduler.state_dict(),
-                        "epoch": epoch,
-                        "global_step": step,
-                        "config": config,
-                    }
-                    checkpoint.update(kwargs)
+                    收集需要保存的状态:
+                    - 模型参数
+                    - 优化器状态
+                    - 学习率调度器状态
+                    - 当前训练轮次
+                    - 全局步数
+                    - 训练配置
 
             Step 3: 保存到文件
-                    checkpoint_path = os.path.join(output_dir, f"checkpoint-{step}.pt")
-                    torch.save(checkpoint, checkpoint_path)
+                    将检查点字典序列化到文件
 
             Step 4: 管理检查点数量
-                    如果 save_total_limit 设置，删除旧的检查点
+                    如果设置了最大保留数量，删除旧的检查点
         """
         pass
 
@@ -249,21 +248,19 @@ class Trainer:
 
         流程:
             Step 1: 加载检查点文件
-                    checkpoint = torch.load(checkpoint_path, map_location=device)
+                    从磁盘读取检查点文件到内存
 
             Step 2: 恢复模型状态
-                    model.load_state_dict(checkpoint["model_state_dict"])
+                    将检查点中的模型参数加载到模型
 
             Step 3: 恢复优化器状态
-                    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+                    恢复优化器的状态 (如动量等)
 
             Step 4: 恢复调度器状态 (如果存在)
-                    if "lr_scheduler_state_dict" in checkpoint:
-                        lr_scheduler.load_state_dict(checkpoint["lr_scheduler_state_dict"])
+                    如果检查点包含调度器状态，恢复学习率调度器
 
             Step 5: 恢复训练状态
-                    current_epoch = checkpoint["epoch"]
-                    global_step = checkpoint["global_step"]
+                    恢复当前训练轮次和全局步数
 
             Step 6: 返回检查点字典
         """

@@ -55,20 +55,16 @@ class BaseTokenizer:
 
         初始化步骤:
             Step 1: 设置词表
-                    self.vocab = vocab or {}
-                    self.inverse_vocab = {v: k for k, v in self.vocab.items()}
+                    保存词表字典，并构建反向词表 (id -> token)
+                    用于编码和解码时快速查找
 
             Step 2: 设置特殊 token
-                    self.pad_token = special_tokens.get("pad_token", "<pad>")
-                    self.eos_token = special_tokens.get("eos_token", "<|endoftext|>")
-                    self.unk_token = special_tokens.get("unk_token", "<unk>")
-                    self.bos_token = special_tokens.get("bos_token", None)
+                    从配置中获取各类特殊 token 的字符串表示
+                    包括 pad_token, eos_token, unk_token, bos_token
 
             Step 3: 获取特殊 token ID
-                    self.pad_token_id = self.vocab.get(self.pad_token, 0)
-                    self.eos_token_id = self.vocab.get(self.eos_token, 1)
-                    self.unk_token_id = self.vocab.get(self.unk_token, 2)
-                    self.bos_token_id = self.vocab.get(self.bos_token, None) if self.bos_token else None
+                    在词表中查找各特殊 token 对应的 ID
+                    如果未找到，使用默认值 (0, 1, 2 等)
 
             Step 4: 确保特殊 token 在词表中
                     如果词表是空的或特殊 token 不在词表中，
@@ -192,7 +188,7 @@ class BaseTokenizer:
 
         流程:
             Step 1: 逐个编码文本
-                    encoded = [self.encode(text, ...) for text in texts]
+                    遍历文本列表，对每个文本调用 encode 方法
 
             Step 2: 如果需要填充
                     - 找出最长序列长度 (或 max_length)
@@ -200,7 +196,7 @@ class BaseTokenizer:
                     - 创建 attention_mask，有效位置为 1，padding 为 0
 
             Step 3: 如果需要返回张量
-                    - 将列表转换为 torch.Tensor 或 numpy.ndarray
+                    - 将列表转换为 PyTorch 张量或 NumPy 数组
 
             Step 4: 返回结果字典
         """

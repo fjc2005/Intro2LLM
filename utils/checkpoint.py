@@ -80,36 +80,21 @@ class CheckpointManager:
 
         保存流程:
             Step 1: 创建检查点字典
-                    checkpoint = {
-                        "model_state_dict": state_dict["model"],
-                        "optimizer_state_dict": state_dict["optimizer"],
-                        "scheduler_state_dict": state_dict.get("scheduler"),
-                        "epoch": epoch,
-                        "step": step,
-                        "metric": metric,
-                        "config": state_dict.get("config"),
-                    }
+                    收集模型、优化器、调度器等状态信息
+                    包含当前训练轮次、步数、指标值和配置
 
             Step 2: 保存到文件
-                    checkpoint_path = os.path.join(
-                        self.checkpoint_dir,
-                        f"checkpoint-{epoch}-{step}.pt"
-                    )
-                    torch.save(checkpoint, checkpoint_path)
+                    生成检查点文件名，包含轮次和步数信息
+                    使用 torch.save 将状态字典保存到文件
 
             Step 3: 更新检查点列表
-                    self.checkpoints.append(checkpoint_path)
+                    将新检查点路径添加到列表
 
             Step 4: 清理旧检查点
-                    if len(self.checkpoints) > self.max_checkpoints:
-                        old_checkpoint = self.checkpoints.pop(0)
-                        os.remove(old_checkpoint)
+                    如果超过最大保留数量，删除最早的检查点
 
             Step 5: 保存最佳模型
-                    if is_best or (metric is not None and self._is_best(metric)):
-                        best_path = os.path.join(self.checkpoint_dir, "best_model.pt")
-                        shutil.copy(checkpoint_path, best_path)
-                        self.best_metric = metric
+                    如果当前模型指标优于历史最佳，保存为最佳模型
 
             Step 6: 返回路径
         """

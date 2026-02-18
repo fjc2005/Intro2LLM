@@ -93,11 +93,12 @@ class PPOLoss(nn.Module):
 
         计算公式:
             首先计算新旧策略的重要性采样比率:
-                ratio = exp(log_probs - old_log_probs) = π_new(a|s) / π_old(a|s)
+                ratio = exp(新策略对数概率 - 旧策略对数概率)
+                      = π_new(a|s) / π_old(a|s)
 
             计算两个替代目标:
-                surr1 = ratio * advantages
-                surr2 = clip(ratio, 1-ε, 1+ε) * advantages
+                surr1 = ratio × advantages
+                surr2 = clip(ratio, 1-ε, 1+ε) × advantages
 
             取两者最小值防止策略更新过大，并求平均:
                 policy_loss = -mean(min(surr1, surr2))
@@ -129,17 +130,17 @@ class PPOLoss(nn.Module):
         计算公式:
             如果使用价值裁剪 (PPO-clip 风格):
                 首先对价值估计进行裁剪，限制其与旧价值的偏差范围:
-                    value_clipped = old_values + clip(values - old_values, -range, +range)
+                    value_clipped = 旧价值 + clip(新价值 - 旧价值, -范围, +范围)
 
                 计算两个价值损失:
-                    value_loss1 = (values - returns)^2
-                    value_loss2 = (value_clipped - returns)^2
+                    value_loss1 = (新价值 - 回报)^2
+                    value_loss2 = (裁剪后价值 - 回报)^2
 
                 取两者最大值并求平均:
-                    value_loss = 0.5 * mean(max(value_loss1, value_loss2))
+                    value_loss = 0.5 × mean(max(value_loss1, value_loss2))
             否则:
                 使用标准的均方误差损失:
-                    value_loss = 0.5 * mean((values - returns)^2)
+                    value_loss = 0.5 × mean((新价值 - 回报)^2)
         """
         pass
 
@@ -159,7 +160,7 @@ class PPOLoss(nn.Module):
         熵的计算:
             首先使用 softmax 函数将 logits 转换为概率分布
             然后计算信息熵:
-                entropy = -sum(probs * log(probs), dim=-1)
+                entropy = -Σ(probs × log(probs))
             形状: [batch_size, seq_len]
 
         作用:
@@ -189,7 +190,7 @@ class PPOLoss(nn.Module):
                 KL(π || π_ref) = E_π[log π(a|s) - log π_ref(a|s)]
 
             实际计算为对数概率差的均值:
-                kl_div = mean(log_probs - ref_log_probs)
+                kl_div = mean(策略对数概率 - 参考对数概率)
 
         注意: 这是 KL 散度的估计，不是精确值
         """

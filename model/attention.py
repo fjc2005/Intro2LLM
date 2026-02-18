@@ -194,7 +194,7 @@ class GroupedQueryAttention(nn.Module):
         """
         super().__init__()
         # 从配置中提取参数
-        # 计算 num_key_value_groups = num_attention_heads // num_key_value_heads
+        # 计算分组数：num_key_value_groups 等于 num_attention_heads 除以 num_key_value_heads
         # 验证整除关系
         # 初始化 Q、K、V、O 投影层，注意 K、V 的输出维度
         pass
@@ -216,19 +216,19 @@ class GroupedQueryAttention(nn.Module):
         操作步骤:
             Step 1: 扩展维度
                     在 KV 头维度之后插入一个新维度，用于后续复制
-                    形状变化: [batch, num_kv_heads, seq, head_dim] -
-                              [batch, num_kv_heads, 1, seq, head_dim]
+                    形状变化: [batch, num_kv_heads, seq, head_dim] ->
+                             [batch, num_kv_heads, 1, seq, head_dim]
 
             Step 2: 复制
                     沿新插入的维度将 KV 头复制 num_groups 次
                     这样每个原始 KV 头会被复制成 num_groups 个副本
-                    形状变化: [batch, num_kv_heads, 1, seq, head_dim] -
-                              [batch, num_kv_heads, num_groups, seq, head_dim]
+                    形状变化: [batch, num_kv_heads, 1, seq, head_dim] ->
+                             [batch, num_kv_heads, num_groups, seq, head_dim]
 
-            Step 3: reshape
-                    合并 KV 头维度和复制维度，使总头数等于注意力头数
-                    形状变化: [batch, num_kv_heads, num_groups, seq, head_dim] -
-                              [batch, num_attention_heads, seq, head_dim]
+            Step 3: 合并维度
+                    将 KV 头维度和复制维度合并，使总头数等于注意力头数
+                    形状变化: [batch, num_kv_heads, num_groups, seq, head_dim] ->
+                             [batch, num_attention_heads, seq, head_dim]
                     其中 num_attention_heads = num_kv_heads * num_groups
 
         示例:
@@ -274,7 +274,7 @@ class GroupedQueryAttention(nn.Module):
 
             Step 5: 复制 KV 以匹配 Q 头数 (GQA 关键步骤)
                     由于 K/V 头数少于 Q 头数，需要将每个 K/V 头复制 num_groups 次
-                    num_groups = num_attention_heads // num_key_value_heads
+                    num_groups 等于 num_attention_heads 除以 num_key_value_heads
                     复制后 K/V 形状: [batch, num_heads, total_len, head_dim]
 
             Step 6-9: 注意力计算 (同 MHA)

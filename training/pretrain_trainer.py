@@ -94,68 +94,38 @@ class PretrainTrainer(Trainer):
         训练流程:
 
             Step 1: 模型前向传播
-                    outputs = model(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        labels=labels,
-                    )
-                    # outputs 包含 logits 和 loss
+                    将批次数据传入因果语言模型
+                    模型会返回包含 logits 和 loss 的输出
 
             Step 2: 获取损失
-                    loss = outputs.loss  # 标量张量
-
-                    如果 outputs 没有 loss:
-                    logits = outputs.logits  # [batch, seq, vocab]
-                    # 手动计算交叉熵损失
-                    loss = F.cross_entropy(
-                        logits.view(-1, vocab_size),
-                        labels.view(-1),
-                        ignore_index=-100
-                    )
+                    从模型输出中提取损失值
+                    如果模型没有返回损失，手动计算交叉熵损失
 
             Step 3: 梯度累积处理
-                    if gradient_accumulation_steps > 1:
-                        loss = loss / gradient_accumulation_steps
-                        # 累积多步后再更新参数
+                    如果使用梯度累积，将损失除以累积步数
+                    累积多步后再更新参数
 
             Step 4: 反向传播
-                    loss.backward()
+                    执行损失的反向传播，计算梯度
 
             Step 5: 梯度裁剪 (可选)
-                    if max_grad_norm > 0:
-                        torch.nn.utils.clip_grad_norm_(
-                            self.model.parameters(),
-                            max_grad_norm
-                        )
+                    如果设置了最大梯度范数，对梯度进行裁剪
 
             Step 6: 优化器步骤 (如果达到累积步数)
-                    if (self.global_step + 1) % gradient_accumulation_steps == 0:
-                        self.optimizer.step()
-                        self.lr_scheduler.step()
-                        self.optimizer.zero_grad()
+                    如果达到梯度累积步数:
+                    - 执行优化器步骤更新参数
+                    - 更新学习率调度器
+                    - 清零梯度
 
             Step 7: 收集指标
-                    metrics = {
-                        "loss": loss.item() * gradient_accumulation_steps,
-                        "perplexity": torch.exp(loss).item(),
-                        "learning_rate": self.lr_scheduler.get_last_lr()[0],
-                    }
+                    记录损失、困惑度、学习率等指标
 
             Step 8: 返回指标
                     return metrics
 
         混合精度训练 (如果使用):
-            with torch.cuda.amp.autocast():
-                outputs = model(...)
-                loss = outputs.loss
-
-            # 缩放梯度防止下溢
-            scaler.scale(loss).backward()
-
-            if (step + 1) % grad_accum == 0:
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
+            在 autocast 上下文中执行前向传播
+            使用 GradScaler 缩放损失防止下溢
         """
         pass
 
@@ -188,21 +158,14 @@ class PretrainTrainer(Trainer):
         - perplexity: 困惑度，exp(loss)
 
         流程:
-            model.eval()
-            total_loss = 0
-            num_batches = 0
-
-            with torch.no_grad():
-                for batch in val_dataloader:
-                    batch = self._move_to_device(batch)
-                    outputs = model(**batch)
-                    total_loss += outputs.loss.item()
-                    num_batches += 1
-
-            avg_loss = total_loss / num_batches
-            perplexity = torch.exp(torch.tensor(avg_loss))
-
-            return {"loss": avg_loss, "perplexity": perplexity.item()}
+            Step 1: 设置模型为评估模式
+            Step 2: 初始化损失累加器和批次计数器
+            Step 3: 禁用梯度计算，遍历验证数据
+                    - 移动批次到设备
+                    - 执行前向传播
+                    - 累加损失
+            Step 4: 计算平均损失和困惑度
+            Step 5: 返回评估指标
         """
         pass
 

@@ -112,44 +112,37 @@ class TransformerBlock(nn.Module):
 
             # ========== 自注意力子层 ==========
             Step 1: 保存残差
-                    residual = hidden_states
+                    在归一化前保存输入，作为残差连接的基础
                     形状: [batch, seq_len, hidden_size]
 
             Step 2: Pre-Attention 归一化
-                    hidden_states = input_layernorm(hidden_states)
+                    在进入注意力子层前进行归一化 (Pre-LN 结构)
                     形状: [batch, seq_len, hidden_size]
 
             Step 3: 自注意力计算
-                    hidden_states, present_kv = self_attn(
-                        hidden_states=hidden_states,
-                        position_ids=position_ids,
-                        past_key_value=past_key_value,
-                        attention_mask=attention_mask,
-                        use_cache=use_cache
-                    )
+                    通过自注意力机制处理输入，实现 token 间信息交互
                     hidden_states 形状: [batch, seq_len, hidden_size]
-                    present_kv: Tuple of ([batch, num_heads, total_len, head_dim], ...)
+                    present_kv: 返回的 KV 缓存，用于自回归生成
 
             Step 4: 残差连接
-                    hidden_states = residual + hidden_states
-                    形状: [batch, seq_len, hidden_size]
+                    将注意力子层的输出与原始输入相加
+                    这允许梯度直接流过恒等路径，帮助训练深层网络
 
             # ========== 前馈网络子层 ==========
             Step 5: 保存残差
-                    residual = hidden_states
+                    在归一化前保存输入，作为残差连接的基础
                     形状: [batch, seq_len, hidden_size]
 
             Step 6: Pre-FFN 归一化
-                    hidden_states = post_attention_layernorm(hidden_states)
+                    在进入前馈网络前进行归一化
                     形状: [batch, seq_len, hidden_size]
 
             Step 7: 前馈网络计算
-                    hidden_states = mlp(hidden_states)
+                    通过前馈网络对每个位置进行非线性变换
                     形状: [batch, seq_len, hidden_size]
 
             Step 8: 残差连接
-                    hidden_states = residual + hidden_states
-                    形状: [batch, seq_len, hidden_size]
+                    将前馈网络的输出与原始输入相加
 
             Step 9: 返回结果
                     return hidden_states, present_kv

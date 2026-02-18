@@ -82,24 +82,25 @@ class FeedForward(nn.Module):
 
         计算步骤:
             Step 1: 门控投影
-                    gate = gate_proj(x)
+                    通过门控投影矩阵将 hidden_size 映射到 intermediate_size
                     形状: [batch, seq_len, intermediate_size]
 
             Step 2: 应用门控激活
-                    gate = GELU(gate)
+                    对门控投影结果应用 GELU 激活函数
+                    GELU(x) = x * Phi(x)，其中 Phi 是标准正态分布的累计分布函数
                     形状: [batch, seq_len, intermediate_size]
 
             Step 3: 上采样投影
-                    up = up_proj(x)
+                    通过上采样投影矩阵将 hidden_size 映射到 intermediate_size
                     形状: [batch, seq_len, intermediate_size]
 
             Step 4: 门控乘法 (Gating)
-                    # 逐元素相乘，门控机制选择激活的信息
-                    gated = gate * up
+                    逐元素相乘，让激活后的门控值决定上采样值的通过量
+                    这是 GLU 门控机制的核心
                     形状: [batch, seq_len, intermediate_size]
 
             Step 5: 下采样投影
-                    output = down_proj(gated)
+                    通过下采样投影矩阵将 intermediate_size 映射回 hidden_size
                     形状: [batch, seq_len, hidden_size]
 
         维度追踪:
@@ -178,23 +179,24 @@ class SwiGLU(nn.Module):
 
         计算步骤 (与 GeGLU 相同，只是激活函数不同):
             Step 1: 门控投影
-                    gate = gate_proj(x)
+                    通过门控投影矩阵将 hidden_size 映射到 intermediate_size
                     形状: [batch, seq_len, intermediate_size]
 
             Step 2: 应用 Swish/SiLU 激活
-                    gate = SiLU(gate)  # 或 Swish
+                    对门控投影结果应用 SiLU (Swish) 激活函数
+                    SiLU(x) = x * sigmoid(x)，即输入乘以其 sigmoid 值
                     形状: [batch, seq_len, intermediate_size]
 
             Step 3: 上采样投影
-                    up = up_proj(x)
+                    通过上采样投影矩阵将 hidden_size 映射到 intermediate_size
                     形状: [batch, seq_len, intermediate_size]
 
             Step 4: 门控乘法
-                    gated = gate * up
+                    逐元素相乘，让激活后的门控值决定上采样值的通过量
                     形状: [batch, seq_len, intermediate_size]
 
             Step 5: 下采样投影
-                    output = down_proj(gated)
+                    通过下采样投影矩阵将 intermediate_size 映射回 hidden_size
                     形状: [batch, seq_len, hidden_size]
 
         SiLU 计算细节:
@@ -218,9 +220,7 @@ def get_feed_forward(config):
         对应的 FFN 模块类实例
 
     逻辑:
-        if config.use_swiglu:
-            return SwiGLU(config)
-        else:
-            return FeedForward(config)  # GeGLU
+        当配置中 use_swiglu 为 True 时，返回 SwiGLU 实例
+        当配置中 use_swiglu 为 False 时，返回 FeedForward 实例 (即 GeGLU)
     """
     pass

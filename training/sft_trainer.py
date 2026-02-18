@@ -78,27 +78,18 @@ class SFTTrainer(Trainer):
 
         流程:
             Step 1: 前向传播
-                    outputs = model(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        labels=labels,
-                    )
+                    将批次数据传入语言模型
+                    模型会返回包含 logits 和 loss 的输出
 
             Step 2: 获取损失
-                    loss = outputs.loss
-                    # 注意: labels 中的 -100 会被 CrossEntropyLoss 自动忽略
+                    从模型输出中提取损失值
+                    注意: labels 中的 -100 会被 CrossEntropyLoss 自动忽略
 
             Step 3-6: 反向传播、梯度裁剪、优化器步骤
                       (同 PretrainTrainer)
 
             Step 7: 收集指标
-                    # 可以额外计算有效 token 数量
-                    valid_tokens = (labels != -100).sum().item()
-                    metrics = {
-                        "loss": loss.item(),
-                        "valid_tokens": valid_tokens,
-                        "learning_rate": self.lr_scheduler.get_last_lr()[0],
-                    }
+                    记录损失、有效 token 数量、学习率等指标
 
         数据格式示例:
             input_ids:  [prompt tokens... response tokens... eos]

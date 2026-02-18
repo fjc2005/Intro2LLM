@@ -59,21 +59,11 @@ def init_wandb(
 
     初始化流程:
         Step 1: 检查 wandb 是否可用
-                if not WANDB_AVAILABLE:
-                    print("W&B not installed, skipping...")
-                    return None
+                如果 wandb 库未安装，打印提示信息并返回 None
 
         Step 2: 初始化 wandb
-                run = wandb.init(
-                    project=project,
-                    name=name,
-                    config=config,
-                    tags=tags,
-                    group=group,
-                    job_type=job_type,
-                    resume=resume,
-                    entity=entity,
-                )
+                使用传入的参数初始化 wandb 运行
+                包括项目名、实验名、配置、标签、分组等
 
         Step 3: 返回 run 对象
     """

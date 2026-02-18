@@ -76,10 +76,11 @@ class MixedPrecisionTrainer:
 
         流程:
             Step 1: 缩放损失 (如果是 FP16)
-                    scaled_loss = scaler.scale(loss)
+                    使用 GradScaler 对损失进行缩放
+                    防止 FP16 梯度下溢
 
             Step 2: 反向传播
-                    scaled_loss.backward()
+                    执行缩放损失的反向传播
         """
         pass
 
@@ -92,21 +93,19 @@ class MixedPrecisionTrainer:
 
         流程:
             Step 1: 梯度反缩放
-                    scaler.unscale_(optimizer)
+                    对梯度进行反缩放，还原到原始尺度
 
             Step 2: 梯度裁剪 (可选)
-                    torch.nn.utils.clip_grad_norm_(...)
+                    对梯度进行裁剪，防止梯度爆炸
 
             Step 3: 检查梯度是否有效
-                    if scaler.step(optimizer):
-                        # 梯度未下溢，执行更新
-                        pass
+                    如果梯度未发生下溢，执行参数更新
 
             Step 4: 更新缩放因子
-                    scaler.update()
+                    根据梯度状况更新缩放因子
 
             Step 5: 清零梯度
-                    optimizer.zero_grad()
+                    清零优化器中的梯度，为下一步做准备
         """
         pass
 

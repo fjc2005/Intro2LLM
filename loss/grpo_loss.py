@@ -103,7 +103,7 @@ class GRPOLoss(nn.Module):
                     形状变化: [batch_size, num_samples] -> [batch_size, 1]
 
                     使用 Z-score 归一化公式:
-                        advantages = (rewards - mean) / (std + eps)
+                        advantages = (rewards - 均值) / (标准差 + eps)
 
                     形状: [batch_size, num_samples]
                     直观: 高于平均的回复获得正优势，低于平均的获得负优势
@@ -111,16 +111,16 @@ class GRPOLoss(nn.Module):
             Step 2: 计算比率 (如果有参考模型)
                     如果提供了参考模型的对数概率:
                         计算重要性采样比率:
-                            ratio = exp(policy_log_probs - reference_log_probs)
+                            ratio = exp(策略对数概率 - 参考对数概率)
                         形状: [batch_size, num_samples]
 
-                        使用 PPO 式裁剪，将比率限制在 [1 - epsilon, 1 + epsilon] 范围内
+                        使用 PPO 式裁剪，将比率限制在 [1 - ε, 1 + ε] 范围内
 
                         计算裁剪后的策略损失，取未裁剪和裁剪后两者的最小值:
-                            policy_loss = -min(advantages * ratio, advantages * clipped_ratio)
+                            policy_loss = -min(advantages × ratio, advantages × clipped_ratio)
                     否则:
                         无参考模型，直接使用对数概率加权:
-                            policy_loss = -advantages * policy_log_probs
+                            policy_loss = -advantages × policy_log_probs
 
             Step 3: 计算 KL 惩罚 (如果有参考模型)
                     如果提供了参考模型的对数概率:
@@ -129,7 +129,7 @@ class GRPOLoss(nn.Module):
                         对计算出的 KL 项进行梯度截断 (detach)
 
                         总损失为策略损失与 KL 惩罚的加权和:
-                            loss = mean(policy_loss) + beta * mean(kl_div)
+                            loss = mean(policy_loss) + β × mean(kl_div)
                     否则:
                         总损失为策略损失的均值
 
@@ -165,7 +165,7 @@ class GRPOLoss(nn.Module):
             优势值，[batch_size, num_samples]
 
         归一化公式:
-            advantages = (rewards - mean) / (std + eps)
+            advantages = (rewards - 均值) / (标准差 + eps)
 
         替代方案:
             - 排名归一化: 基于排序而非原始奖励值

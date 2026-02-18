@@ -81,34 +81,24 @@ class EarlyStopping:
 
         判断流程:
             Step 1: 初始化 (第一次调用)
-                    if self.best_score is None:
-                        self.best_score = val_metric
-                        self.save_checkpoint(model)
-                        return False
+                    如果是第一次调用，初始化最佳分数并保存模型
 
             Step 2: 计算改善程度
-                    if self.mode == "min":
-                        # 损失越低越好
-                        improvement = self.best_score - val_metric
-                    else:
-                        # 准确率越高越好
-                        improvement = val_metric - self.best_score
+                    根据模式计算当前指标与最佳指标的差值:
+                    - 最小化模式: 差值 = 最佳值 - 当前值
+                    - 最大化模式: 差值 = 当前值 - 最佳值
 
             Step 3: 判断是否改善
-                    if improvement > self.min_delta:
-                        # 有改善
-                        self.best_score = val_metric
-                        self.save_checkpoint(model)
-                        self.counter = 0
-                    else:
-                        # 无改善
-                        self.counter += 1
-                        if self.counter >= self.patience:
-                            self.early_stop = True
-                            return True
+                    如果改善程度超过阈值:
+                    - 更新最佳分数
+                    - 保存当前最佳模型
+                    - 重置无改善计数器
+                    否则:
+                    - 增加无改善计数器
+                    - 如果计数器超过耐心值，触发早停
 
             Step 4: 返回
-                    return False
+                    返回是否应该停止训练
         """
         pass
 

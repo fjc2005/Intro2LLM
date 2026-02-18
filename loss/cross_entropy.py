@@ -96,45 +96,29 @@ class CrossEntropyLoss(nn.Module):
                     labels: [batch, seq_len]
 
             Step 2: 展平为 2D 张量
-                    logits_flat = logits.view(-1, vocab_size)
-                    形状: [batch * seq_len, vocab_size]
-
-                    labels_flat = labels.view(-1)
-                    形状: [batch * seq_len]
+                    将三维 logits 和二维 labels 展平为二维
+                    logits_flat 形状: [batch * seq_len, vocab_size]
+                    labels_flat 形状: [batch * seq_len]
 
             Step 3: 计算交叉熵
                     使用 F.cross_entropy 或手动计算:
 
-                    # 手动计算过程:
-                    # 3.1 应用 log_softmax
-                    log_probs = F.log_softmax(logits_flat, dim=-1)
-                    形状: [batch * seq_len, vocab_size]
-
-                    # 3.2 收集目标位置的 log 概率
-                    # nll_loss = -log_probs[range(batch*seq_len), labels_flat]
-                    # 或使用 gather:
-                    nll_loss = -log_probs.gather(dim=-1, index=labels_flat.unsqueeze(1))
-                    nll_loss = nll_loss.squeeze(1)
-                    形状: [batch * seq_len]
+                    手动计算过程:
+                    - 应用 log_softmax 将 logits 转换为对数概率
+                    - 使用 gather 操作收集目标 token 位置的对数概率
+                    - 取负得到负对数似然损失
 
             Step 4: 处理 ignore_index
-                    将 labels == ignore_index 的位置的损失设为 0
-                    或直接在计算时排除
-
-                    mask = (labels_flat != ignore_index).float()
-                    nll_loss = nll_loss * mask
+                    标记 ignore_index 位置为无效，不参与损失计算
+                    创建一个掩码，忽略_index 对应位置的损失
 
             Step 5: 缩减损失
-                    if reduction == "mean":
-                        loss = nll_loss.sum() / mask.sum()
-                        # 按有效 token 数平均
-                    elif reduction == "sum":
-                        loss = nll_loss.sum()
-                    else:  # "none"
-                        loss = nll_loss.view(batch_size, seq_len)
+                    根据 reduction 参数:
+                    - "mean": 按有效 token 数求平均
+                    - "sum": 求和
+                    - "none": 保留每个位置的损失
 
             Step 6: 返回损失
-                    return loss
 
         边界条件:
             - 如果所有 token 都是 ignore_index，避免除零

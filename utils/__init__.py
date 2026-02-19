@@ -53,3 +53,9 @@ __all__ = [
     "WandbLogger",
     "finish_wandb",
 ]
+
+def TODO(message: str):
+    """
+    TODO 宏，用于标记需要实现的功能
+    """
+    print(f"TODO: {message}")

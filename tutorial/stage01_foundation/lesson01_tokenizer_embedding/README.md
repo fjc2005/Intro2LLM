@@ -1,6 +1,14 @@
 # L01: Tokenizer 与 Embedding
 
-> **课程定位**：这是 Intro2LLM 课程的**第一个实验**，也是 LLM 模型基础结构的**起始点**。在本实验中，我们将从零开始理解文本如何被计算机"读懂"，以及这些数字如何获得"位置信息"。
+> **课程定位**：这是 Intro2LLM 课程的**第一个实验**，也是整个 LLM 系统的“最小可用入口”。在本实验中，你要把一段人类可读文本，稳定、可复现地变成模型可消费的张量表示，并为后续 Transformer 结构做好准备。
+
+本次课程中，我们按照以下逻辑顺序进行：
+
+- 先搭出**最小可用链路**：文本 -> token IDs -> 向量 -> 位置信息
+- 再逐层抽象：BaseTokenizer -> BPE -> Byte-Level BPE
+- 最后把“能跑”变成“可维护、可复现”：批处理、保存/加载、测试与调试路径
+
+---
 
 ## 实验目的
 
@@ -8,688 +16,724 @@
 
 ### 本章你将学到
 
-- **分词算法**：理解 BPE 和字节级分词的原理，掌握从字符到子词的词表构建方法
-- **嵌入层**：理解离散 token ID 如何转换为连续向量表示
-- **位置编码**：掌握 Transformer 中位置信息的注入方式（Sinusoidal 和 RoPE）
-- **工程实现**：学会使用 Python 实现完整的分词器和嵌入模块
+- **分词算法**：理解 BPE 与字节级 BPE 的训练逻辑、编码/解码逻辑、合并规则的作用
+- **工程抽象**：为什么需要 `BaseTokenizer` 统一接口；batch/padding/mask 如何协作
+- **嵌入层**：离散 ID 如何变成可学习查表；梯度如何回传到权重
+- **位置编码**：Sinusoidal 的外推性与加法注入；RoPE 的旋转注入与相对位置特性
+- **调试能力**：如何用最小样例手算验证、如何用测试/断点定位 shape 与广播错误
+
+### 本章你要推进的项目进度（以仓库接口为准）
+
+- **完成** `tokenizer/base_tokenizer.py`、`tokenizer/bpe_tokenizer.py`、`tokenizer/byte_level_tokenizer.py` 的完整实现
+- **完成** `model/embedding.py` 中 `TokenEmbedding` 的从 0 实现（理解查表本质）
+- **完成** `model/embedding.py` 中 `PositionalEncoding`（正余弦）与 `RoPE`（旋转位置编码）的实现
 
 ---
 
-## 第一部分：分词器 (Tokenizer)
+## 实验要求与约束（务必先读）
 
-### 1.1 为什么需要分词？
-
-在自然语言处理中，我们需要将**文本**（人类可读）转换为**数字**（计算机可处理）。这个过程分为两个步骤：
-
-1. **分词 (Tokenization)**：将文本拆分成小的语义单元（tokens）
-2. **编码 (Encoding)**：将 tokens 转换为数字 IDs
-
-**核心问题**：如何切分文本？
-
-| 切分方式 | 示例 | 优点 | 缺点 |
-|---------|------|------|------|
-| 词级 | "今天" → ["今天"] | 语义清晰 | OOV问题严重 |
-| 字符级 | "今天" → ["今", "天"] | 无OOV | 序列太长，语义弱 |
-| 子词级 | "今天" → ["今", "天"] 或 ["今天"] | 平衡语义和覆盖 | 需要算法构建 |
-
-**OOV (Out-of-Vocabulary)**：未登录词，词表中没有的词。例如训练时没有见过"人工智能"，词级分词就无法处理。
-
-### 1.2 BPE (Byte Pair Encoding) 算法
-
-#### 1.2.1 算法原理
-
-BPE 是一种**数据压缩**算法，后来被引入 NLP 用于构建子词词表。2015 年，Sennrich 等人将其从压缩领域引入机器翻译，解决了未登录词（OOV）问题。
-
-**核心思想**：
-- 从单个字符开始
-- 不断合并高频相邻字符对
-- 最终得到一个"子词"词表
-
-**为什么能解决 OOV 问题**？
-
-例如，训练时没有见过"人工智能"这个词，但我们可能见过"人工"和"智能"这两个子词。这样，"人工智能"就可以被表示为 `["人工", "智能"]`，无需特殊处理。
-
-#### 1.2.2 算法步骤详解
-
-**训练阶段**（构建词表和合并规则）：
-
-```
-输入: 文本语料, 目标词表大小
-输出: 词表, 合并规则列表
-
-Step 1: 初始化
-  - 将文本按空格拆分，得到单词列表
-  - 每个单词拆分为字符序列 (末尾添加 </w> 表示词尾)
-  - 词表 = 所有出现的字符
-
-Step 2: 迭代合并
-  循环直到达到目标词表大小:
-    a) 统计所有相邻字符对的频率
-       例如: "aaab" → [("a","a"), ("a","a"), ("a","b")]
-    b) 找到频率最高的字符对 (A, B)
-    c) 将 A+B 加入词表
-    d) 将语料中所有相邻的 "A B" 替换为 "AB"
-```
-
-**编码阶段**（分词）：
-
-```
-输入: 一个单词
-输出: 子词列表
-
-Step 1: 从左到右遍历
-Step 2: 按最长匹配原则，优先匹配更长的子词
-Step 3: 如果当前子词不在词表中，回退到单个字符
-```
-
-**解码阶段**：
-
-```
-输入: 子词列表
-输出: 原始文本
-
-Step 1: 直接拼接所有子词
-Step 2: 移除词尾标记 </w>
-```
-
-#### 1.2.3 具体示例演示
-
-假设语料：`"aaab"` 出现 3 次
-
-**第一轮合并**：
-- 字符对 "aa" 出现 2×3=6 次（每行有2对"aa"）
-- 合并 "aa" → "aaa"
-- 词表添加 "aaa"
-- 文本变为：`"aaaab"` (每个 "aa" 合成了 "aaa")
-
-**第二轮合并**：
-- 字符对 "aaa", "aa" 各有 3 次
-- 继续合并高频率的对...
-
-**编码示例**：
-假设训练得到的合并规则是：`[("e", "r"), ("er", "s")]`
-- 输入单词："hello" → ['h', 'e', 'l', 'l', 'o', '</w>']
-- 应用规则 ("e", "r")：['h', 'er', 'l', 'l', 'o', '</w>']
-- 应用规则 ("er", "s")：['h', 'ers', 'l', 'l', 'o', '</w>']
-- 最终分词结果：["hers", "llo"] 或类似
-
-#### 1.2.4 BPE 实现要点
-
-**所在文件**：[tokenizer/bpe_tokenizer.py](../../../tokenizer/bpe_tokenizer.py)
-
-**需要补全的代码位置**：
-- `BaseTokenizer.__init__` 方法（第40-73行）：初始化词表和特殊 token
-- `train` 方法（第64-110行）：训练 BPE，构建词表和合并规则
-- `encode` 方法（第112-164行）：编码文本为 token IDs
-- `decode` 方法（第166-205行）：解码 token IDs 为文本
-- `_pretokenize` 方法（第207-217行）：预分词，将文本拆分为单词
-- 其他辅助方法
-
-**训练实现要点**：
-
-1. **准备阶段 - 构建单词频率表**：
-   - 遍历每条文本，用空格拆分得到单词列表
-   - 统计每个单词出现的次数，存入字典
-   - 同时将所有出现过的字符加入初始词表集合
-   - 词表需要包含一个特殊的词结束标记（如 `</w>`）
-
-2. **迭代合并 - 找到最佳字符对**：
-   - 创建一个空的字典用于统计字符对频率
-   - 遍历每个单词及其出现次数
-   - 将单词拆成字符列表，末尾加上结束标记
-   - 对每个单词中每一对相邻字符，用字符对作为key，出现次数作为value累加
-   - 循环结束后，从字典中找出value最大的字符对，这就是本轮要合并的对象
-
-3. **更新词表和规则**：
-   - 把合并后的新字符（比如 "a" + "b" = "ab"）加入词表
-   - 把这个合并规则（字符对 tuple）记录到merges列表中
-   - 需要更新所有单词的表示方式，把相邻的这两个字符替换成合并后的新字符
-
-**编码实现要点**：
-
-1. **预处理**：先把单词拆成单个字符，末尾加上结束标记
-
-2. **按顺序应用合并规则**：
-   - 从merges列表的第一个规则开始，依次尝试
-   - 对每个规则，遍历当前的所有字符，检测是否有相邻的两个字符能与规则匹配
-   - 如果匹配成功，将这两个字符合并为一个新字符
-   - 继续用同样的规则检查下一个位置，直到这一位置无法再合并
-   - 移动到下一个位置重复这个过程
-
-3. **转换为ID**：将最终的字符列表在词表中查找对应的ID，如果找不到则使用未知token的ID
+- 本课程提供的是“**只有接口、没有实现**”的代码框架：你看到的 `pass` 就是需要你补齐的实现。
+- 你必须在已有函数/类声明上补全实现：**不允许改动接口签名**（参数列表、返回值类型、类名/方法名）。
+- 实验指导书不提供任何可直接 copy-paste 的实现代码；只允许自然语言伪代码与步骤描述。
+- 你的实现要与仓库内文档注释描述一致；并且能支撑后续 lesson 使用。
+- 优先保证正确性与可读性，再考虑性能优化（优化必须不改变行为）。
 
 ---
 
-### 1.3 字节级分词 (Byte-Level Tokenization)
+## 理论预备：你在这节课里到底在“表示”什么
 
-#### 1.3.1 算法原理
+在实现细节之前，先明确 lesson1 的四个核心对象，以及它们的“信息类型”：
 
-字节级 BPE 是 **GPT-2/RoBERTa** 采用的分词方式。2019年，Radford 等人在 GPT-2 论文中首次大规模使用这种方法。
+1. **Token（符号）**：文本被切分后的最小处理单位（可能是字、子词、字节映射字符等）。它仍然是“符号”，不具备连续几何意义。
+2. **Token ID（整数）**：token 在词表中的索引，是离散整数。它的数值大小没有语义（ID=5 不比 ID=6 更大或更重要）。
+3. **Embedding（向量）**：把离散 token 映射到连续向量空间，向量之间的距离/夹角才开始承载语义与统计关联。
+4. **Position（位置）**：序列顺序信息。Transformer 的注意力对“集合”敏感、对“顺序”不敏感，因此必须显式注入位置信息。
 
-**核心区别于普通 BPE**：
-- 普通 BPE：基础词表 = 字符（可能有几千个，取决于语言）
-- 字节级 BPE：基础词表 = **256 个字节**（固定）
+你可以把整个链路看成一次“表示类型升级”：
 
-#### 1.3.2 为什么需要字节级？
+符号（text/token） -> 离散索引（ID） -> 连续表示（embedding） -> 带序列结构的连续表示（position-aware embedding）
 
-**解决 Unicode 问题**：
-- 普通 BPE 依赖空格拆分，对中文等无空格语言效果差
-- 字节级直接处理 UTF-8 编码的字节，**任何字符**都能表示
-- 真正做到 **0 OOV**
-
-**例子**：
-- 中文 "你" 的 UTF-8 编码：`[e4, bd, a0]` (3个字节)
-- 字节级 BPE 可以将 `[e4, bd]` 合并为一个 token
-- 英文 "hello" 的 UTF-8 编码：`[68, 65, 6c, 6c, 6f]`
-
-**为什么 UTF-8**？
-
-UTF-8 是一种变长编码：
-- ASCII 字符（0-127）：1 字节
-- 中文、日文等：3-4 字节
-- Emoji：4 字节
-
-无论哪种语言，最终都能分解为 0-255 的字节值。
-
-#### 1.3.3 字节到 Unicode 的映射
-
-问题：字节值 0-255，很多是不可打印的控制字符。
-
-解决方案：GPT-2 使用一种巧妙的映射，将每个字节映射到一个可打印的 Unicode 字符：
-- 首先收集所有可打印的 ASCII 字符（从感叹号到波浪号，共95个）
-- 然后将剩余的161个字节按顺序映射到 Unicode 的私有区域（从256开始）
-- 最终建立一个从字节值（0-255）到单个 Unicode 字符的映射表
-- 同时建立反向映射，方便从字符还原为字节
-
-> **趣闻**：GPT-2 的映射表中有 33-126 是可打印 ASCII，剩余的映射到 Unicode 私有区，所以你在 GPT-2 的词表中会看到一些奇怪的 Unicode 字符。
-
-#### 1.3.4 字节级 BPE 实现要点
-
-**所在文件**：[tokenizer/byte_level_tokenizer.py](../../../tokenizer/byte_level_tokenizer.py)
-
-**需要补全的代码位置**：
-- `__init__` 方法（第41-57行）：初始化字节映射
-- `_create_bytes_to_unicode` 方法（第59-75行）：创建字节到 Unicode 映射表
-- `_bytes_to_unicode` 方法（第77-100行）：将文本转为字节级 Unicode
-- `_unicode_to_bytes` 方法（第102-127行）：将 Unicode 转回文本
-- `train` 方法（第129-147行）：训练字节级 BPE
-- `encode` 方法（第149-179行）：编码文本
-- `decode` 方法（第181-207行）：解码文本
-
-**实现步骤**：
-
-1. **初始化映射**：
-   - 创建两个方向的映射字典：字节→Unicode字符，Unicode字符→字节
-
-2. **文本转字节表示**：
-   - 首先将文本编码为 UTF-8 字节序列
-   - 然后把每个字节值通过映射表转换为对应的 Unicode 字符
-   - 最后把所有字符拼接成一个字符串返回
-
-3. **字节转回文本**：
-   - 将字符串中的每个字符通过反向映射表转换为字节值
-   - 将字节值列表组合成 bytes 对象
-   - 使用 UTF-8 解码还原为原始文本（注意处理解码错误）
-
-4. **训练和编码**：
-   - 在进行 BPE 训练或编码前，先把文本转换为字节级表示
-   - 后面的流程与普通 BPE 相同，只是操作的基本单元变成了字节而非字符
+后续所有模型结构（注意力、前馈、残差、归一化）都是在最后一种对象上运行的。
 
 ---
 
-## 第二部分：Embedding（嵌入层）
+## 项目组成与执行流
 
-### 2.1 为什么需要 Token Embedding？
+### lesson1 相关目录结构
 
-**核心问题**：Transformer 的 Self-Attention 本质是**矩阵乘法**，只能处理连续数值，无法直接处理离散的 token ID。
+你主要会在这些文件中工作：
 
-**解决方案**：将每个 token ID 映射为一个固定维度的**向量**。
+- `tokenizer/base_tokenizer.py`：统一接口、batch 编码、保存/加载、特殊 token 管理
+- `tokenizer/bpe_tokenizer.py`：字符级 BPE（训练 merges、按 merges 编码/解码）
+- `tokenizer/byte_level_tokenizer.py`：字节级 BPE（字节<->Unicode 映射 + 复用 BPE）
+- `model/embedding.py`：TokenEmbedding、Sinusoidal 位置编码、RoPE
 
-```
-输入: token ID = 1234 (整数)
- ↓ 查表 (Embedding)
-输出: [0.12, -0.34, 0.56, ...] (维度为 hidden_size 的向量)
-```
+### 执行流
 
-**直观理解**：
+本实验最终需要你能够完成以下链路：
 
-想象一个巨大的字典，每一页（词表中的一个词）都对应一个固定长度的描述（嵌入向量）。当我们"查字典"时，不是返回文字，而是返回这个描述。这个描述是连续的值，可以进行数学运算（加减乘除），从而捕捉语义关系。
+1. 文本输入 `text`
+2. `tokenizer.encode(text)` 得到 `token_ids`（整数列表/张量）
+3. `TokenEmbedding(token_ids)` 得到 `token_vectors`（浮点张量）
+4. 位置编码：
+   - 方案 A：`PositionalEncoding(token_vectors)` 直接相加注入
+   - 方案 B：RoPE 注入到注意力的 Q/K（本实验实现 RoPE 本体，后续注意力会调用）
 
-例如，通过训练我们可能发现：
-- 嵌入向量("国王") - 嵌入向量("男人") + 嵌入向量("女人") ≈ 嵌入向量("王后")
+你应该始终把“输入输出契约”写在脑中：
 
-### 2.2 TokenEmbedding 实现
-
-#### 2.2.1 原理
-
-Embedding 本质是一个**可学习的查找表 (Lookup Table)**：
-- 形状：`[vocab_size, hidden_size]`
-- 第 `i` 行表示第 `i` 个 token 的向量表示
-- 这个矩阵是模型的**参数**，通过反向传播学习得到
-
-**手动实现 vs 调用高级 API**：
-
-我们不调用 PyTorch 现成的 `nn.Embedding`，而是手动创建嵌入矩阵，这样能更深入理解其原理：
-
-- 使用 `nn.Parameter` 创建可学习参数
-- 使用索引操作 `[:, index]` 手动查表
-
-#### 2.2.2 TokenEmbedding 实现要点
-
-**所在文件**：[model/embedding.py](../../../model/embedding.py)
-
-**需要补全的代码位置**：
-- `TokenEmbedding.__init__` 方法（第33-45行）
-- `TokenEmbedding.forward` 方法（第47-59行）
-
-**实现步骤**：
-
-1. **初始化方法中**：
-   - 调用父类的初始化方法
-   - 创建一个形状为 `[vocab_size, hidden_size]` 的嵌入矩阵作为参数
-   - 需要使用 `nn.Parameter` 包装，使其成为可学习的模型参数
-   - 对嵌入矩阵进行初始化，通常使用正态分布，均值为0，标准差为0.02
-   - **注意**：这里不要使用 `nn.Embedding`，而是直接创建一个 `nn.Parameter`
-
-2. **前向传播方法中（手动查表实现）**：
-   - 接收一个形状为 `[batch_size, seq_len]` 的 token ID 张量
-   - 需要手动实现查表操作：
-     - 获取 batch 中每个位置的 token ID
-     - 用这些 ID 作为索引，从嵌入矩阵中取出对应的行
-     - 返回的向量形状为 `[batch_size, seq_len, hidden_size]`
-   - **实现思路**：使用索引操作 `self.embedding_table[input_ids]`
-
-**手动实现的关键点**：
-
-- 创建参数：`nn.Parameter(torch.randn(vocab_size, hidden_size) * 0.02)`
-- 查表操作：`self.embedding_table[input_ids]`
-  - `input_ids` 是 `[batch, seq]` 的 LongTensor
-  - 索引结果是 `[batch, seq, hidden_size]`
+- Tokenizer：字符串 <-> ID 序列（可保存、可加载、批处理可对齐）
+- Embedding：ID 张量 -> 向量张量（梯度可回传）
+- PE/RoPE：不改变 batch/seq 维，只注入位置信息（数值稳定）
 
 ---
 
-## 第三部分：位置编码 (Positional Encoding)
+## 你将实现的接口清单
 
-### 3.1 为什么需要位置编码？
+### 文件 1：`tokenizer/base_tokenizer.py`
 
-**Transformer 的特点**：
-- Self-Attention 机制是**置换等变 (Permutation Equivariant)** 的
-- 意味着：输入顺序改变，输出结果不变！
+你需要补全：
 
-**问题**：
-- "狗咬人" 和 "人咬狗" 语义完全不同
-- 如果没有位置信息，Transformer 无法区分
-- Attention 计算：$Attention(Q, K, V) = softmax(\frac{QK^T}{\sqrt{d_k}})V$
-- $QK^T$ 的计算与顺序无关！
+- `BaseTokenizer.__init__`
+- `BaseTokenizer.vocab_size`
+- `BaseTokenizer.encode_batch`
+- `BaseTokenizer.save`
+- `BaseTokenizer.load`
+- `BaseTokenizer.tokenize`
+- `BaseTokenizer.convert_tokens_to_ids`
+- `BaseTokenizer.convert_ids_to_tokens`
 
-**解决方案**：给每个位置添加一个独特的"位置编码"
+### 文件 2：`tokenizer/bpe_tokenizer.py`
 
-### 3.2 绝对位置编码 vs 相对位置编码
+你需要补全：
 
-| 类型 | 代表 | 特点 |
-|------|------|------|
-| 绝对位置编码 | Sinusoidal | 每个位置一个向量，与内容相加 |
-| 相对位置编码 | RoPE | 通过旋转操作融入相对位置信息 |
+- `BPETokenizer.train`
+- `BPETokenizer.encode`
+- `BPETokenizer.decode`
+- `BPETokenizer._pretokenize`
+- `BPETokenizer._postprocess`
+- `BPETokenizer.get_vocab`
+- `BPETokenizer.tokenize`
+- `BPETokenizer.save`
+- `BPETokenizer.load`
 
-**选择依据**：
-- 2017-2020 年：Sinusoidal 为主（BERT、GPT-2）
-- 2021 年后：RoPE 为主（LLaMA、Qwen、Mistral）
+### 文件 3：`tokenizer/byte_level_tokenizer.py`
 
----
+你需要补全：
 
-### 3.3 Sinusoidal 位置编码
+- `ByteLevelTokenizer.__init__`
+- `ByteLevelTokenizer._create_bytes_to_unicode`
+- `ByteLevelTokenizer._bytes_to_unicode`
+- `ByteLevelTokenizer._unicode_to_bytes`
+- `ByteLevelTokenizer.train`
+- `ByteLevelTokenizer.encode`
+- `ByteLevelTokenizer.decode`
+- `ByteLevelTokenizer.save`
+- `ByteLevelTokenizer.load`
 
-#### 3.3.1 算法原理
+### 文件 4：`model/embedding.py`
 
-来自论文 "Attention Is All You Need" (2017)，这是 Transformer 论文的核心贡献之一。
+你需要补全：
 
-**编码公式**：
-```
-PE(pos, 2i)   = sin(pos / 10000^(2i/d_model))
-PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
-
-其中:
-  pos: 位置 (0, 1, 2, ...)
-  i:   维度索引 (0, 1, 2, ..., d_model/2 - 1)
-  d_model: 模型维度
-```
-
-**直观理解**：
-- 偶数维度用 sin，奇数维度用 cos
-- 低频维度（i 小）：周期长，可以编码远距离位置
-- 高频维度（i 大）：周期短，可以编码近距离位置
-
-```
-维度 0 (i=0): sin(pos/10000^0) = sin(pos)        周期 2π
-维度 1 (i=0): cos(pos/10000^0) = cos(pos)        周期 2π
-维度 2 (i=1): sin(pos/10000^(2/512))             周期较长
-维度 3 (i=1): cos(pos/10000^(2/512))
-...
-维度 510 (i=255): sin(pos/10000^(510/512))       周期很短
-维度 511 (i=255): cos(pos/10000^(510/512))
-```
-
-#### 3.3.2 为什么这样设计？
-
-1. **唯一性**：每个 (pos, i) 组合对应唯一的编码值
-2. **外推性**：可以推广到训练时未见过的位置（因为是数学公式计算出来的）
-3. **相对位置**：两个位置的编码存在线性关系
-
-数学证明：
-```
-sin(a)cos(b) - cos(a)sin(b) = sin(a-b)
-```
-这意味着相对位置可以通过线性变换获得！
-
-> **拓展思考**：为什么除以 10000？
-> - 如果不用 10000，直接用 pos，sin(pos) 的周期是 2π，对于长序列，相邻位置的 sin 值变化太快
-> - 10000 是一个经验值，让不同维度的周期从短到长覆盖足够广的范围
-
-#### 3.3.3 Sinusoidal 位置编码实现要点
-
-**所在文件**：[model/embedding.py](../../../model/embedding.py)
-
-**需要补全的代码位置**：
-- `PositionalEncoding.__init__` 方法（第84-99行）
-- `PositionalEncoding._create_pe` 方法（第101-122行）
-- `PositionalEncoding.forward` 方法（第122-135行）
-
-**实现步骤**：
-
-1. **初始化方法中**：
-   - 调用父类的初始化方法
-   - 调用内部方法 `_create_pe` 来预计算位置编码矩阵
-   - 将计算结果注册为 buffer（不参与梯度更新）
-   - buffer 的形状为 `[max_len, d_model]`
-
-2. **创建位置编码矩阵方法中**：
-   - 第一步：创建一个从0到max_len-1的位置索引向量，形状为 `[max_len, 1]`
-   - 第二步：计算维度除数，公式为 `10000^(-2i/d_model)`，其中 i 取偶数值（0, 2, 4, ...），形状为 `[d_model // 2]`
-     - 可以使用指数运算实现：`exp(arange(0, d_model, 2) * -log(10000.0) / d_model)`
-   - 第三步：计算正弦和余弦编码
-     - 位置向量与除数相乘得到角度
-     - 偶数维度（步长2）取正弦值
-     - 奇数维度（步长2）取余弦值
-   - 将结果存入形状为 `[max_len, d_model]` 的矩阵
-
-3. **前向传播方法中**：
-   - 获取输入张量的序列长度
-   - 从预计算的位置编码矩阵中取出对应长度的编码
-   - 通过广播机制将位置编码加到输入上
-   - 返回添加位置编码后的张量
+- `TokenEmbedding.__init__`
+- `TokenEmbedding.forward`
+- `PositionalEncoding.__init__`
+- `PositionalEncoding._create_pe`
+- `PositionalEncoding.forward`
+- `RoPE.__init__`
+- `RoPE._compute_cos_sin`
+- `RoPE.rotate_half`
+- `RoPE.apply_rotary_pos_emb`
+- `RoPE.forward`
 
 ---
 
-### 3.4 RoPE (旋转位置编码)
+## 第一部分：Tokenizer
 
-#### 3.4.1 算法原理
+### 1.1 为什么需要分词器
 
-来自论文 "RoFormer: Enhanced Transformer with Rotary Position Embedding" (2021)，由苏剑林等人提出。目前是现代 LLM 的主流选择。
+神经网络的输入是张量，不是字符串。分词器至少要解决两件事：
 
-**核心思想**：不直接给 Q/K 添加位置编码，而是**旋转**它们！
+- **离散化**：把文本切成 token，并映射成整数 ID
+- **封装约定**：特殊 token（pad/eos/unk/bos）在全项目内必须一致，否则训练与推理会“协议不一致”
 
-**数学推导**：
+从效果角度，分词器还决定了：
 
-对于二维向量 $(x_1, x_2)$，位置 $m$ 的旋转为：
-$$
-\begin{pmatrix} \cos(m\theta) & -\sin(m\theta) \\ \sin(m\theta) & \cos(m\theta) \end{pmatrix}
-\begin{pmatrix} x_1 \\ x_2 \end{pmatrix}
-$$
+- 序列长度（影响算力与上下文容量）
+- 词表大小（影响参数量与 softmax 计算）
+- OOV 处理能力（能否覆盖任意输入）
 
-展开：
-$$
-x_1' = x_1 \cos(m\theta) - x_2 \sin(m\theta)
-$$
-$$
-x_2' = x_1 \sin(m\theta) + x_2 \cos(m\theta)
-$$
+### 1.1.1 “切分粒度”与三种典型方案
 
-**关键性质**：相对位置不变性
+把文本切成 token，本质是选择一种“离散化坐标系”。常见粒度对比：
 
-$$
-\langle f_q(m), f_k(n) \rangle = \langle q, R_{m-n}k \rangle
-$$
+- **词级（word-level）**：token 是完整词
+  - 优点：语义直观、序列短
+  - 缺点：OOV 严重（新词/拼写变化/多语言），词表巨大且稀疏
+- **字符级（char-level）**：token 是字符
+  - 优点：几乎无 OOV（只要字符集覆盖）
+  - 缺点：序列变长，长程依赖更难学；对多语言字符集仍可能膨胀
+- **子词级（subword-level）**：token 是高频片段（BPE/WordPiece/Unigram 等）
+  - 优点：在“词级语义”与“字符级覆盖”之间折中，现代 LLM 的主流
+  - 缺点：训练与实现更复杂；分词规则会影响下游表现与可解释性
 
-即：两个 token 的注意力分数**只取决于相对位置 (m-n)**，而非绝对位置！
+Byte-Level BPE 可以看作“把字符级底座替换为字节级底座”的子词级方案：以覆盖性换取可读性与一定长度开销。
 
-#### 3.4.2 为什么需要 RoPE？
+### 1.1.2 一个工程视角：Tokenizer 是“协议”，不是“预处理小工具”
 
-1. **更好的长度外推**：外推到更长序列时效果更好
-2. **更高效的相对位置编码**：在 attention 计算中自然融入相对位置
-3. **现代 LLM 标准**：LLaMA、Qwen、Mistral 等都使用 RoPE
+Tokenizer 需要全系统一致的原因在于：它直接定义了训练数据的离散分布与模型输入空间。
 
-> **拓展**：RoPE vs Sinusoidal
-> - Sinusoidal：将位置编码直接加到输入（$x + PE$）
-> - RoPE：将位置信息"编织"进 Q 和 K（旋转后的 $q_m, k_n$ 做 attention）
-> - RoPE 的 attention 更直接地建模了相对位置关系
+- 词表 ID 的语义必须全局一致，否则同一个 ID 在不同模块含义不同会导致不可恢复的训练错误
+- 特殊 token（pad/eos/unk/bos）的策略必须一致，否则会出现：
+  - 模型把 padding 当成有效内容注意
+  - 生成时无法正确停止（eos 不一致）
+  - 训练损失被“无意义 token”污染
 
-#### 3.4.3 RoPE 实现要点
+### 1.2 BaseTokenizer：统一项目中的tokenizer接口
 
-**所在文件**：[model/embedding.py](../../../model/embedding.py)
+`BaseTokenizer` 是我们整个项目所依赖tokenizer的基类，后续任何训练/推理代码都只依赖它的接口，不关心你是 BPE 还是 Byte-Level。
 
-**需要补全的代码位置**：
-- `RoPE.__init__` 方法（第163-179行）
-- `RoPE._compute_cos_sin` 方法（第181-206行）
-- `RoPE.rotate_half` 静态方法（第208-229行）
-- `RoPE.apply_rotary_pos_emb` 静态方法（第231-264行）
-- `RoPE.forward` 方法（第266-285行）
+#### 1.2.1 `BaseTokenizer.__init__`（特殊 token 与词表）
 
-**实现步骤**：
+目标：你必须保证以下事实成立：
 
-1. **初始化方法中**：
-   - 调用父类的初始化方法
-   - 计算频率倒数：`inv_freq[i] = base^(-2i/dim)`，其中 i 取偶数值
-   - 将其注册为 buffer，形状为 `[dim // 2]`
+- `vocab` 是 token 字符串到 ID 的映射
+- `inverse_vocab` 是 ID 到 token 字符串的映射（用于 decode）
+- `pad/eos/unk` 的字符串与 ID 总是可用（即便传入空词表）
+- `bos` 可选，但如果配置了也必须有合法 ID
 
-2. **计算 cos 和 sin 方法中**：
-   - 接收位置ID张量和序列长度
-   - 第一步：计算频率矩阵
-     - 用位置ID（形状 `[batch, seq]`）与频率倒数（形状 `[dim//2]`）做外积
-     - 结果形状为 `[batch, seq, dim//2]`
-   - 第二步：扩展维度
-     - 将频率矩阵在最后一维复制拼接
-     - 形状变为 `[batch, seq, dim]`
-   - 第三步：计算正弦和余弦值
-     - 分别调用 cos 和 sin 函数
-   - 返回两个张量
+自然语言伪代码：
 
-3. **旋转操作中**：
-   - 接收形状为 `[..., dim]` 的张量
-   - 将最后一维分成前后两半
-   - 前半部分保持不变，后半部分取负
-   - 将取负的后半部分与前半部分交换位置后拼接
-   - 最终实现 `[-x2, x1]` 的效果
+1. 读取 `special_tokens`，若为空则填入默认配置（pad/eos/unk，bos 可为 None）
+2. 读取 `vocab`，若为空则创建空映射
+3. 依次检查每个特殊 token 的字符串是否在 `vocab` 中：
+   - 如果在：记录其 ID
+   - 如果不在：为它分配一个新的 ID（通常是当前词表大小），写入 `vocab`
+4. 基于更新后的 `vocab` 构建 `inverse_vocab`（确保一一对应）
+5. 写入并缓存各特殊 token 的 ID（pad/eos/unk/bos）
 
-4. **应用旋转位置编码方法中**：
-   - 接收 Q、K、cos、sin 四个张量
-   - 先将 cos 和 sin 的维度扩展以便与 Q、K 的 head 维度对齐
-   - 对 Q 应用旋转公式：`q * cos + rotate_half(q) * sin`
-   - 对 K 应用同样的旋转公式
-   - 返回旋转后的 Q 和 K
+你需要在报告中解释：为什么“特殊 token 必须加入词表”是一个协议问题，而不是实现细节。
 
-5. **前向传播方法中**：
-   - 接收 Q、K 和位置ID
-   - 确定序列长度和设备信息
-   - 调用 `_compute_cos_sin` 计算 cos 和 sin
-   - 调用 `apply_rotary_pos_emb` 应用旋转
-   - 返回旋转后的 Q 和 K
+#### 1.2.2 `encode_batch`（padding、truncation、attention_mask）
 
----
+目标：批处理必须把不同长度序列对齐，并生成 mask。
 
-## 代码补全位置汇总
+自然语言伪代码：
 
-### 文件 1: [tokenizer/bpe_tokenizer.py](../../../tokenizer/bpe_tokenizer.py)
+1. 对每个文本调用 `encode` 得到 ID 序列列表
+2. 决定目标长度：
+   - 若 `padding=False`：目标长度就是各自长度（不对齐）
+   - 若 `padding=True` 或 `padding=\"longest\"`：目标长度取本 batch 最大长度
+   - 若 `padding=\"max_length\"`：目标长度取 `max_length`（必须提供）
+3. 如启用 `truncation=True`：
+   - 若 `max_length` 不存在：应给出清晰的错误提示或约定行为
+   - 若序列超长：按约定截断（通常保留前部，必要时保留 eos）
+4. 对每条序列：
+   - 末尾补足 `pad_token_id` 直到目标长度
+   - 生成 `attention_mask`：原始有效位置为 1，padding 位置为 0
+5. 若 `return_tensors` 指定：
+   - 把 `input_ids`、`attention_mask` 转成对应张量/数组
 
-| 方法 | 行号 | 功能 |
-|------|------|------|
-| `BaseTokenizer.__init__` | 40-73 | 初始化词表和特殊 token |
-| `train` | 64-110 | 训练 BPE，构建词表和合并规则 |
-| `encode` | 112-164 | 编码文本为 token IDs |
-| `decode` | 166-205 | 解码 token IDs 为文本 |
-| `_pretokenize` | 207-217 | 预分词，将文本拆分为单词 |
-| `_postprocess` | 219-229 | 后处理，清理分词标记 |
-| `get_vocab` | 231-233 | 获取词表 |
-| `tokenize` | 235-237 | 分词，返回 token 字符串列表 |
-| `save` | 239-248 | 保存分词器到文件 |
-| `load` | 250-253 | 从文件加载分词器 |
+你需要在报告中说明：为什么 mask 必须与 padding 一致，以及后续注意力如何用它屏蔽 padding。
 
-### 文件 2: [tokenizer/byte_level_tokenizer.py](../../../tokenizer/byte_level_tokenizer.py)
+#### 1.2.3 `save` / `load`（可复现）
 
-| 方法 | 行号 | 功能 |
-|------|------|------|
-| `__init__` | 41-57 | 初始化字节映射 |
-| `_create_bytes_to_unicode` | 59-75 | 创建字节到 Unicode 映射表 |
-| `_bytes_to_unicode` | 77-100 | 将文本转为字节级 Unicode |
-| `_unicode_to_bytes` | 102-127 | 将 Unicode 转回文本 |
-| `train` | 129-147 | 训练字节级 BPE |
-| `encode` | 149-179 | 编码文本 |
-| `decode` | 181-207 | 解码文本 |
-| `save` | 209-211 | 保存分词器 |
-| `load` | 213-216 | 加载分词器 |
+目标：保存后加载应恢复同样的 encode 行为。
 
-### 文件 3: [model/embedding.py](../../../model/embedding.py)
+自然语言伪代码：
 
-| 类 | 方法 | 行号 | 功能 |
-|------|------|------|------|
-| `TokenEmbedding` | `__init__` | 33-45 | 创建嵌入矩阵 |
-| `TokenEmbedding` | `forward` | 47-59 | 查表转换 |
-| `PositionalEncoding` | `__init__` | 84-99 | 预计算位置编码 |
-| `PositionalEncoding` | `_create_pe` | 101-122 | 创建编码矩阵 |
-| `PositionalEncoding` | `forward` | 122-135 | 添加位置编码 |
-| `RoPE` | `__init__` | 163-179 | 预计算频率 |
-| `RoPE` | `_compute_cos_sin` | 181-206 | 计算 cos 和 sin |
-| `RoPE` | `rotate_half` | 208-229 | 旋转操作 |
-| `RoPE` | `apply_rotary_pos_emb` | 231-264 | 应用旋转 |
-| `RoPE` | `forward` | 266-285 | 完整流程 |
+- `save`：
+  1. 若目录不存在则创建
+  2. 写出 `vocab.json`（token -> id）
+  3. 写出 `special_tokens.json`（pad/eos/unk/bos 的字符串）
+  4. 写出 `tokenizer_config.json`（你认为必要的其它元信息，例如类型名、版本号等）
+- `load`：
+  1. 读入上述文件并校验字段齐全
+  2. 调用构造函数恢复实例
+  3. 验证 `vocab` 与 `inverse_vocab` 一致性
+
+提示：持久化是“工程正确性”的核心之一。没有它，你无法稳定复现实验或调试。
 
 ---
 
-## 练习
+## 第二部分：BPE（字符级“合并规则”的训练与执行）
 
-### 对实验报告的要求
+### 2.1 BPE 的直觉
 
-- 基于 markdown 格式来完成，以文本方式为主
-- 填写各个基本练习中要求完成的报告内容
-- 列出你认为本实验中重要的知识点，以及与对应的 LLM 原理中的知识点，并简要说明你对二者的含义、关系、差异等方面的理解
+把文本拆到字符级，永远不会 OOV，但序列太长、语义太弱。BPE 通过“频率驱动的合并”在两者之间折中：
 
-### 练习 1：理解 BPE 训练流程
+- 高频片段（例如常见词根、词缀、常见词）会被合并成更长 token
+- 低频片段仍可退化为更短 token（甚至单字符）
 
-阅读 `tokenizer/bpe_tokenizer.py` 中的 `train` 方法，结合 BPE 算法原理，回答以下问题：
+### 2.1.1 BPE 是什么：从压缩到子词词表
 
-1. BPE 训练的第一步是构建初始词表，请说明初始词表包含哪些内容？
-2. 在迭代合并过程中，如何统计字符对的频率？为什么需要乘以单词的频率？
-3. 合并规则（merges）的作用是什么？在编码时如何应用这些规则？
+BPE（Byte Pair Encoding）最初是数据压缩领域的一个思想：反复把序列中最常见的相邻符号对合并成新符号，从而用更短的符号序列表示原始数据。
 
-### 练习 2：理解字节级分词的独特之处
+迁移到 NLP 后：
 
-阅读 `tokenizer/byte_level_tokenizer.py`，思考并回答：
+- “符号”可以是字符（char-BPE）或字节映射字符（byte-level）
+- “合并规则”就是 merges 列表
+- merges 的顺序就是一个可执行的分词程序
 
-1. 字节级分词与普通 BPE 的核心区别是什么？
-2. 为什么字节级分词可以做到"零 OOV"？
-3. `_bytes_to_unicode` 和 `_unicode_to_bytes` 这两个方法分别用于什么场景？
+### 2.1.2 为什么 BPE 能缓解 OOV
 
-### 练习 3：理解 TokenEmbedding 的作用
+OOV 的根源是“词级离散化过粗”：一旦词表没见过该词，就无法编码。
 
-阅读 `model/embedding.py` 中的 `TokenEmbedding` 类，回答：
+BPE 的策略是：任何新词都能被拆解成更小的子词/字符序列；同时高频片段被合并以缩短序列。
 
-1. 为什么 Transformer 需要将 token ID 转换为向量？
-2. 嵌入矩阵的形状 `[vocab_size, hidden_size]` 含义是什么？
-3. 如果词表大小为 50000，隐藏维度为 768，嵌入矩阵有多少参数？
-4. 本实验中我们手动创建了嵌入矩阵（使用 `nn.Parameter`），而不是直接调用 `nn.Embedding`。请思考：这两种方式本质上有何异同？为什么手动实现能帮助我们更好理解嵌入层的原理？
+所以它不是“消灭 OOV”，而是把 OOV 从“整个词”降级到“更小单位”，使编码永远可退化到基础符号。
 
-### 练习 4：理解位置编码的必要性
+### 2.1.3 BPE 的两个阶段：训练 merges 与执行 merges
 
-思考并回答：
+概念上分清两件事：
 
-1. 为什么 Transformer 的 Self-Attention 无法区分 "狗咬人" 和 "人咬狗"？
-2. Sinusoidal 位置编码的公式 $PE(pos, 2i) = sin(pos / 10000^{2i/d})$ 中，$10000$ 这个数字的作用是什么？如果改成 $100$ 或 $1000000$ 会有什么影响？
-3. RoPE 与 Sinusoidal 相比，有什么优势？
+- **训练（learn merges）**：从语料统计出一串合并规则（merges），并确定最终词表
+- **编码（apply merges）**：对新文本按 merges 的优先级执行合并，得到 token 序列
 
-### 练习 5：验证你的实现
+这类似“编译器/链接器”与“运行时”的分离：训练是构建规则，encode 是执行规则。
 
-运行以下测试代码，验证你的实现是否正确：
+### 2.2 `BPETokenizer.train`（训练 merges 列表）
 
-```python
-# 测试 BPE
-from tokenizer import BPETokenizer
+训练阶段的目标是得到两样东西：
 
-texts = ["hello world", "world hello", "hello hello world"]
-tokenizer = BPETokenizer()
-tokenizer.train(texts, vocab_size=50)
+- 词表 `vocab`
+- 合并规则 `merges`（一个按顺序排列的相邻 token 对列表）
 
-ids = tokenizer.encode("hello")
-print("BPE 编码结果:", ids)
+自然语言伪代码：
 
-decoded = tokenizer.decode(ids)
-print("BPE 解码结果:", decoded)
-assert decoded == "hello", "解码应等于原文"
+1. 初始化：
+   - 从语料中收集基础符号集合（通常是字符集合）
+   - 把特殊 token 加入词表（遵循 BaseTokenizer 协议）
+2. 统计“单词频率表”：
+   - 用 `_pretokenize` 把文本拆成基本单元（常见做法是按单词/标点切分）
+   - 对每个基本单元统计出现次数
+   - 把每个基本单元表示成“符号序列”（例如字符序列）
+3. 迭代合并直到达到 `vocab_size` 或无法继续：
+   - 统计所有相邻符号对的频率（必须按“基本单元频率”加权）
+   - 选出频率最高的符号对作为本轮 merge
+   - 若最高频率 < `min_frequency`：停止
+   - 记录 merge 到 `merges`
+   - 在所有基本单元的符号序列中执行该 merge（把相邻的 A、B 替换成 AB）
+   - 将新符号 AB 加入词表
+4. 训练结束：
+   - 建立 `merges_dict`（pair -> 顺序索引），用于快速比较 merge 优先级
 
-# 测试 Token Embedding
-import torch
-from model.embedding import TokenEmbedding
+你必须在报告里回答：为什么 merge 的顺序会影响最终编码结果。
 
-emb = TokenEmbedding(vocab_size=10000, hidden_size=768)
-input_ids = torch.tensor([[1, 2, 3, 4, 5]])
-output = emb(input_ids)
-assert output.shape == (1, 5, 768), f"形状应为 (1, 5, 768)，实际为 {output.shape}"
-print("TokenEmbedding 输出形状:", output.shape)
+### 2.2.1 BPE 的优缺点（理论层面）
 
-# 测试位置编码
-from model.embedding import PositionalEncoding
+优点：
 
-pe = PositionalEncoding(d_model=512, max_len=100)
-x = torch.randn(2, 10, 512)
-x_pe = pe(x)
-assert x_pe.shape == (2, 10, 512), f"形状应为 (2, 10, 512)，实际为 {x_pe.shape}"
-print("PositionalEncoding 输出形状:", x_pe.shape)
+- **覆盖性强**：能编码新词、拼写变化、组合词
+- **词表可控**：通过 `vocab_size` 控制模型输入空间大小
+- **序列长度折中**：比字符级短、比词级长，通常是可接受的工程折中
 
-# 测试 RoPE
-from model.embedding import RoPE
+缺点与风险：
 
-rope = RoPE(dim=64, max_position=2048)
-q = torch.randn(2, 8, 10, 64)
-k = torch.randn(2, 8, 10, 64)
-position_ids = torch.arange(10).unsqueeze(0).repeat(2, 1)
+- **贪心/局部性**：训练是局部频率驱动，未必等价于“最优语言单元”
+- **可解释性与可读性**：subword 边界可能不符合人类直觉
+- **语言与语料偏置**：merges 强依赖训练语料分布；换领域可能分词质量下降
+- **实现复杂度**：需要维护 merges 优先级、处理空格/标点等边界
 
-q_rope, k_rope = rope(q, k, position_ids)
-assert q_rope.shape == (2, 8, 10, 64), f"形状应为 (2, 8, 10, 64)，实际为 {q_rope.shape}"
-print("RoPE 输出形状:", q_rope.shape)
+### 2.2.2 常见变体：WordPiece 与 Unigram（了解即可）
 
-print("\n所有测试通过！")
-```
+你在本实验实现的是 BPE，但需要知道它不是唯一方案：
+
+- WordPiece：更常见于早期 BERT 系列，训练目标与合并策略略不同，常配合概率/似然视角
+- Unigram：从一个较大候选词表开始，用概率模型删减词表，分词时常用 Viterbi 找最优分解
+
+现代 LLM 里你会同时见到 BPE、SentencePiece-Unigram、Byte-Level BPE 等不同组合。
+
+### 2.3 `BPETokenizer.encode`（把文本编码成 ID）
+
+自然语言伪代码：
+
+1. 用 `_pretokenize` 将文本拆成基本单元列表
+2. 对每个基本单元执行 BPE：
+   - 初始化为最细粒度符号序列（例如字符序列）
+   - 反复执行合并，直到没有可应用的 merge：
+     - 在当前符号序列中找出所有相邻符号对
+     - 找到其中“在 merges 中出现且优先级最高”的那一个
+     - 将该 pair 在序列中按位置合并（注意：合并后邻接关系会变化，需要继续扫描/更新）
+3. 得到 token 字符串列表后，映射到 ID：
+   - token 在词表中：取对应 ID
+   - 不在：用 `unk_token_id`
+4. 若 `add_special_tokens=True`：
+   - 若定义了 `bos`：在开头加 bos
+   - 在结尾加 eos（按项目约定）
+5. 若启用 `truncation` 且超过 `max_length`：按约定截断
+
+建议：先用极小样例（几个词、几个 merges）手算一次 encode，确保你的合并逻辑与顺序一致。
+
+### 2.4 `BPETokenizer.decode`（把 ID 还原文本）
+
+自然语言伪代码：
+
+1. 把每个 ID 映射回 token 字符串（缺失则用 unk）
+2. 若 `skip_special_tokens=True`：过滤掉 pad/eos/bos/unk 等特殊 token（按配置）
+3. 拼接 token 字符串得到中间文本
+4. 调用 `_postprocess` 清理分词标记与空格规范化
+
+注意：decode 的目标通常是“可读性”和“近似还原”，不一定保证字节级完全一致（Byte-Level 才追求强可逆）。
+
+---
+
+## 第三部分：Byte-Level BPE（让任何 Unicode 都可编码）
+
+### 3.1 为什么需要字节级
+
+字符级 BPE 在多语言、稀有符号、emoji 等场景仍可能出现覆盖问题或预处理脆弱性。Byte-Level 的核心策略是：
+
+- 先把文本转成 UTF-8 字节序列（0..255）
+- 在字节空间做 BPE（基础词表固定为 256）
+- 通过“字节到可打印 Unicode”的双射把字节序列表示成可处理字符串
+
+这样做的结果是：理论上不会 OOV，因为任何字符串最终都能表示为字节。
+
+### 3.1.1 UTF-8 与“字节级”的含义
+
+UTF-8 是变长编码：
+
+- 常见 ASCII 字符通常是 1 个字节
+- 许多非拉丁字符可能是 2-4 个字节
+- emoji 通常是 4 个字节
+
+Byte-Level 的核心观点是：不要直接在“字符表面形态”上做 tokenization，而是在更底层、稳定的 UTF-8 字节序列上做合并与建模。
+
+这带来两点直接影响：
+
+- 覆盖性：任何 Unicode 字符都能编码
+- 长度：某些字符会展开为多个字节，序列长度可能上升（但 BPE 合并会部分抵消）
+
+### 3.2 `_create_bytes_to_unicode`（可逆映射）
+
+目标：构造一个映射表，把每个字节值映射到一个可打印 Unicode 字符，且映射必须可逆。
+
+自然语言伪代码：
+
+1. 选取一组“天然可打印”的字节范围，直接映射到同码点字符（例如常见 ASCII 可打印区间）
+2. 对剩余不可打印/冲突字节：
+   - 依次分配到某个不常用、但稳定可表示的 Unicode 区间
+3. 最终得到 256 个字节的一一映射（双射）
+
+报告要求：说明为什么双射（可逆）是 Byte-Level decode 的必要条件。
+
+### 3.2.1 为什么还要“字节 -> Unicode”映射这一步
+
+你也许会问：既然都到字节了，为什么不直接在 bytes 上做分词？
+
+原因是工程接口与实现便利性：
+
+- Python 字符串处理、正则、持久化等更自然地工作在 Unicode 字符串层
+- 直接处理原始 bytes 也可以，但会让很多文本操作更麻烦
+- GPT-2 风格做法是把 0..255 映射成 256 个可打印字符，让“字节序列”可以安全地塞进字符串处理流程
+
+这一步的本质是“表示层转换”，而不是 tokenization 算法本身。
+
+### 3.3 `_bytes_to_unicode` / `_unicode_to_bytes`
+
+自然语言伪代码：
+
+- `_bytes_to_unicode(text)`：
+  1. 将 `text` 按 UTF-8 编码成字节序列
+  2. 对每个字节值查映射表得到 Unicode 字符
+  3. 拼成新字符串返回（这是“字节级表示”）
+- `_unicode_to_bytes(text)`：
+  1. 基于映射表构造反向映射（Unicode 字符 -> 字节值）
+  2. 将输入字符串逐字符映射回字节序列
+  3. 将字节序列按 UTF-8 解码回原始文本（解码错误按约定处理，例如替换策略）
+
+### 3.4 `ByteLevelTokenizer.train/encode/decode`（复用 BPE）
+
+核心思路：Byte-Level 在 BPE 前后各加一层转换。
+
+自然语言伪代码：
+
+- `train`：
+  1. 把训练语料逐条做 `_bytes_to_unicode`
+  2. 在转换后的语料上调用/复用 BPE 的训练流程（初始词表应覆盖 256 基础符号）
+- `encode`：
+  1. 原文本 -> `_bytes_to_unicode` -> 在字节表示上做 BPE encode
+- `decode`：
+  1. BPE decode 得到字节表示字符串 -> `_unicode_to_bytes` -> 原始文本
+
+提示：Byte-Level 的 `_pretokenize` 往往不再强依赖“单词边界”，你需要在实现中保证行为稳定。
+
+### 3.4.1 Byte-Level 的优缺点（工程取舍）
+
+优点：
+
+- **几乎无 OOV**：输入空间完整覆盖
+- **跨语言鲁棒**：不依赖空格分词，对多语言混排更稳
+- **实现统一**：同一套逻辑适配不同字符集
+
+缺点：
+
+- **可读性差**：token 可能是“奇怪的字符”，调试与人工检查更痛苦
+- **长度开销**：某些字符展开成多字节，未合并时序列更长
+- **边界行为更敏感**：空格、换行、不可见字符的处理需要特别清晰的约定
+
+---
+
+## 第四部分：Embedding（从“ID”到“向量”的运行时环境）
+
+### 4.1 TokenEmbedding：可学习查表
+
+Tokenizer 输出的是离散 ID，但 Transformer 的计算发生在连续向量空间中。Embedding 的本质是：
+
+- 一个形状为 `[vocab_size, hidden_size]` 的可学习参数矩阵
+- 每个 token ID 选择其中一行作为该 token 的向量表示
+- 梯度通过损失回传，更新被访问到的行
+
+### 4.1.1 为什么 Embedding 不是 One-Hot
+
+最直观的离散表示是 one-hot：词表大小为 `V` 时，一个 token 是长度 `V` 的向量，只有一个位置为 1，其余为 0。
+
+但 one-hot 有两个问题：
+
+- 维度巨大且稀疏，不适合直接作为神经网络输入
+- 语义几何无法表达：任意两个不同 token 的 one-hot 距离几乎相同，无法体现相似性
+
+Embedding 做的事情可以理解为“学习一个从 one-hot 到低维稠密空间的线性映射”。查表只是这种线性映射的高效实现形式。
+
+### 4.1.2 Embedding 学到的是什么
+
+经验上，Embedding 会把在相似上下文中出现的 token 学到相近的向量方向与距离（这与分布式表示假说一致）。
+
+在语言模型里，Embedding 是整个模型的“输入坐标系”。如果坐标系学得不好，后续所有层都要花额外容量去补偿。
+
+#### 4.1.1 `TokenEmbedding.__init__`
+
+自然语言伪代码：
+
+1. 保存 `vocab_size`、`hidden_size`
+2. 创建一个可学习权重矩阵（行数为词表大小，列数为隐藏维度）
+3. 进行合理初始化（例如小方差随机初始化）
+4. 将其注册为模型参数，使优化器能更新它
+
+工程提醒（与后续权重共享相关）：
+
+- 你需要能访问到“embedding 权重矩阵本体”，以便后续做 weight tying（embedding 与 lm_head 共享权重）。
+
+#### 4.1.2 `TokenEmbedding.forward`
+
+自然语言伪代码：
+
+1. 输入 `input_ids`，形状通常为 `[batch, seq_len]`
+2. 以 `input_ids` 作为索引，从权重矩阵中取出对应行
+3. 输出形状应为 `[batch, seq_len, hidden_size]`
+
+报告要求：解释为什么这一步是“查表”，以及为什么梯度能回到权重矩阵。
+
+---
+
+## 第五部分：位置编码（把“顺序”注入向量）
+
+### 5.1 为什么需要位置编码
+
+注意力机制本身对 token 的排列是置换等变的：如果你只给它一堆向量而不给位置，它无法区分“第 1 个 token”与“第 10 个 token”。位置编码就是给每个位置一个可区分的信号。
+
+### 5.1.1 一个关键事实：Self-Attention 天然不带顺序
+
+从直觉上理解：注意力的核心是“对一组向量做相关性计算并加权求和”。如果只给一组向量而没有任何位置线索，模型看到的更像“集合（set）”，而不是“序列（sequence）”。
+
+因此位置编码不是“锦上添花”，而是让 Transformer 从“无序集合处理器”变成“序列建模器”的必要条件。
+
+### 5.1.2 绝对位置 vs 相对位置（你在后续会反复遇到）
+
+- **绝对位置编码**：每个位置 `pos` 有一个位置向量 `PE(pos)`，与 token 表示直接组合（通常相加）
+  - 典型：Sinusoidal、Learned Positional Embedding
+- **相对位置编码**：注意力权重或 Q/K 交互显式依赖相对位移 `pos_i - pos_j`
+  - 典型：RoPE、ALiBi、相对位置 bias（T5 风格）
+
+现代 LLM 更偏好相对位置类方法（RoPE/ALiBi 等），原因通常是长度外推与长上下文更稳。
+
+### 5.2 Sinusoidal（正余弦位置编码）
+
+特点：
+
+- 固定、不学习参数
+- 可外推到训练未见过的长度（在合理范围内）
+- 注入方式通常是“加法”：输入向量 + 位置向量
+
+你需要实现的关键点：
+
+- 在初始化阶段预计算 `[max_len, d_model]` 的位置表，并注册为 buffer（不参与梯度）
+- 前向时按 `seq_len` 截取前缀并广播相加
+
+### 5.2.1 Sinusoidal 是什么：一张“频率分层”的位置表
+
+Sinusoidal 通过不同频率的 sin/cos 组合让每个位置都有独特相位。直觉上：
+
+- 低频维度随位置变化慢，提供粗粒度位置
+- 高频维度随位置变化快，提供细粒度位置
+
+把这些维度拼起来，位置就像被编码成一组多尺度“表盘读数”。
+
+### 5.2.2 为什么这样设计：外推与可计算相对位移
+
+Sinusoidal 的两个常见卖点：
+
+- **无需学习参数**：位置表由公式确定
+- **可外推**：理论上你可以计算任意长度的位置编码（只要数值稳定）
+
+此外，在一定条件下，模型可以通过线性组合近似地推断相对位移信息（因为 sin/cos 满足加法公式），这也是它在早期 Transformer 中好用的重要原因。
+
+自然语言伪代码（创建表）：
+
+1. 创建位置索引 `pos = 0..max_len-1`
+2. 创建维度索引（只针对偶数维度）
+3. 计算每个维度的频率缩放项（基于 `10000` 与维度比例）
+4. 偶数维填 sin，奇数维填 cos，拼成完整表
+
+### 5.3 RoPE（旋转位置编码）
+
+RoPE 的直觉：不把位置信号加到输入上，而是对注意力中的 Q/K 做“按位置旋转”，让相对位移体现在内积结果中。现代 LLM 广泛采用。
+
+你需要实现的关键点：
+
+- `inv_freq`：频率倒数向量（维度为 `head_dim/2`）
+- `cos/sin`：基于位置与频率计算得到，最终要能广播到 Q/K 的形状
+- `rotate_half`：把最后一维分成两半，构造“旋转后的向量半边”
+- `apply_rotary_pos_emb`：把旋转公式应用到 q/k
+
+### 5.3.1 RoPE 是什么：把每对维度当作二维向量做旋转
+
+RoPE 的一个常用理解方式：
+
+- 把 `head_dim` 的最后一维按两两分组，每组是一个二维向量 `(x1, x2)`
+- 不同维度组对应不同的旋转频率
+- 在位置 `pos` 时，对每组二维向量旋转一个角度（角度与 `pos` 成比例）
+
+因此它本质是在 Q/K 的表示空间里引入“位置相关的相位”。
+
+### 5.3.2 为什么 RoPE 能表达相对位置
+
+RoPE 的关键性质是：对 Q/K 施加位置相关旋转后，它们的内积关系会以某种形式只依赖于相对位移 `pos_i - pos_j`（而非绝对位置各自的值）。
+
+直觉上：你把同一个向量分别旋转两次，旋转差值决定了它们的对齐程度；差值对应相对位置。
+
+这就是为什么 RoPE 常被称为“相对位置编码”的原因之一。
+
+### 5.3.3 RoPE 的优缺点与工程参数
+
+优点：
+
+- **相对位置友好**：更符合自回归建模的需求
+- **长上下文实践表现好**：被大量现代 LLM 采用
+- **参数少**：核心是公式生成的 cos/sin，不需要额外可学习位置表（实现方式不同会略有差异）
+
+缺点与注意点：
+
+- **实现更容易出错**：shape 对齐与广播错误很常见
+- **base 等超参数会影响外推**：不同 base 会改变旋转频率分布
+- **低精度稳定性**：长序列时必须关注 NaN/Inf 与数值范围
+
+#### 5.3.1 形状对齐检查表（先画再写）
+
+常见注意力输入：
+
+- `q`: `[batch, num_heads, seq_len, head_dim]`
+- `k`: `[batch, num_kv_heads, seq_len, head_dim]`
+
+位置相关张量的目标形态：
+
+- `cos/sin`（基础）: `[batch, seq_len, head_dim]`
+- `cos/sin`（广播到 heads）: 在 heads 维插入大小为 1 的维度后变为 `[batch, 1, seq_len, head_dim]`
+
+实现前你必须明确：
+
+- 你的 `head_dim` 来自哪里（通常是 q 的最后一维）
+- `position_ids` 是 `[batch, seq_len]` 还是 `[seq_len]`，你如何统一处理
+- 哪些维度允许广播，哪些维度必须严格相等
+
+#### 5.3.2 数值稳定性要求
+
+在长序列（例如几千 token）和低精度（fp16/bf16）下，RoPE 容易出现数值问题。你需要在实现中确保：
+
+- 不产生 NaN/Inf
+- 旋转不会系统性改变向量范数（理论上是正交旋转，范数应保持不变，允许微小误差）
+
+---
+
+## 练习（对实验报告的要求）
+
+### 实验报告格式要求
+
+- 使用 Markdown 完成，以文本说明为主
+- 回答所有练习问题
+- 列出你认为本实验中重要的知识点，并说明其与 LLM 原理知识点的关系
+- 记录你的实现取舍（例如某个边界条件你选择了报错还是自动修正）及理由
+- 至少包含一次完整调试记录（失败 -> 定位 -> 修复 -> 验证）
+
+### 练习 1：理解“接口契约”（Tokenizer/Embedding 的协议）
+
+请说明：
+
+- 为什么 `BaseTokenizer` 的存在是“协议层”而不是“代码复用小技巧”
+- pad/eos/unk/bos 这四类特殊 token 各自的语义是什么
+- 如果不同模块对 eos/pad 的约定不一致，会导致什么训练/推理错误
+
+### 练习 2：手算一次 BPE 合并（拆解 merges 的作用机制）
+
+请用一个极小语料（你自己构造即可）完成 2-3 次 merge 的手算过程，并回答：
+
+- 你统计的最高频 pair 是什么，为什么
+- `min_frequency` 提前停止会带来什么影响
+- merges 顺序改变会如何影响 encode 结果（给出一个反例）
+
+### 练习 3：Byte-Level 的可逆性
+
+请说明：
+
+- 为什么 `_create_bytes_to_unicode` 必须构造双射
+- 你如何验证 `_bytes_to_unicode` 与 `_unicode_to_bytes` 互为逆过程
+- Byte-Level 相比字符级 BPE 的主要代价是什么（从序列长度、可读性、预处理等角度回答）
+
+### 练习 4：TokenEmbedding 的本质与梯度路径
+
+请说明：
+
+- 为什么 embedding 是“查表”，而不是普通的线性层
+- 为什么梯度会回到 embedding 权重矩阵的“某些行”
+- weight tying（embedding 与 lm_head 共享权重）为什么能工作，它依赖什么接口约定
+
+### 练习 5：RoPE 的形状与广播
+
+请说明：
+
+- 你认为 q/k/cos/sin 的目标 shape 分别是什么
+- 哪些维度是通过广播匹配的，哪些必须严格相等
+- 你如何验证“旋转不改变范数”（允许数值误差）
+
+### 练习 6：验证你的实现
+
+请在报告中附上：
+
+- 你运行的验证命令（pytest 或你自建的最小验证）
+- 关键验证结果摘要
+- 一个你遇到的 bug：现象、定位思路、修复点、修复后证据
 
 ---
 
 ## 延伸阅读
 
-### 原始论文
-
-1. **BPE**: "Neural Machine Translation of Rare Words with Subword Units" - Sennrich et al., 2015
-2. **字节级 BPE**: "GPT-2: Language Models are Unsupervised Multitask Learners" - Radford et al., 2019
-3. **Sinusoidal PE**: "Attention Is All You Need" - Vaswani et al., 2017
-4. **RoPE**: "RoFormer: Enhanced Transformer with Rotary Position Embedding" - Su et al., 2021
-
-### 实践参考
-
-- HuggingFace Tokenizers 库（https://github.com/huggingface/tokenizers）
-- tiktoken (OpenAI 的 BPE 实现，https://github.com/openai/tiktoken)
-- sentencepiece (Google 的分词库，https://github.com/google/sentencepiece)
+- Sennrich et al., 2015: Neural Machine Translation of Rare Words with Subword Units（BPE）
+- Vaswani et al., 2017: Attention Is All You Need（Sinusoidal）
+- Su et al., 2021: RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE）
+- GPT-2 / RoBERTa 的 Byte-Level BPE 实践资料（理解字节映射动机）
 
 ---
 
 ## 常见问题 FAQ
 
-**Q1: BPE 和 WordPiece 有什么区别？**
-A: BPE 合并频率最高的字符对；WordPiece 合并使语言模型困惑度最低的字符对。WordPiece 需要训练一个语言模型来评估合并收益，计算成本更高。
+### Q1：decode(encode(text)) 为什么不一定完全等于原文？
 
-**Q2: RoPE 比 Sinusoidal 好吗？**
-A: 各有优势。RoPE 在长度外推上表现更好，是现代 LLM 的主流选择。但 Sinusoidal 是 Transformer 原始论文的方案，简洁且效果稳定。
+字符级 BPE 通常以“可读性”和“稳定 tokenization”为主，会引入空格规范化或分词标记；Byte-Level 才更强调强可逆。
 
-**Q3: Embedding 层需要训练吗？**
-A: 可以是可学习的（大多数情况），也可以是固定的（如 Word2Vec 预训练）。可学习的嵌入层通过反向传播更新。
+### Q2：BPE 训练为什么这么慢？
 
-**Q4: 位置编码可以加在 Q/K/V 哪个位置？**
-A: Sinusoidal 加在输入（与 token embedding 相加）；RoPE 通常应用在 Q 和 K 上（通过旋转操作）。
+合并迭代需要反复统计相邻 pair 频率。可以先保证正确性，再考虑用更高效的数据结构或缓存优化（但不能改变行为）。
 
-**Q5: 为什么 RoPE 要用旋转而不是直接加位置编码？**
-A: 直接相加只是给向量"加上"位置信息，而旋转是"乘上"位置信息。旋转操作在数学上更自然地表达了相对位置关系，而且可以通过数学公式证明 attention 分数只依赖于相对位置。
+### Q3：RoPE 最常见的 bug 是什么？
+
+几乎都是 shape/广播对齐错误。解决办法不是“盲改”，而是先写清目标 shape，再逐维对照实际张量。

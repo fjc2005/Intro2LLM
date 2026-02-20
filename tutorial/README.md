@@ -382,45 +382,45 @@
 ```
 
 tokenizer/          → Stage 1 Lesson 01
-base_tokenizer.py
-bpe_tokenizer.py
-byte_level_tokenizer.py
+  base_tokenizer.py
+  bpe_tokenizer.py
+  byte_level_tokenizer.py
 
 model/              → Stage 1 Lessons 01–05
-embedding.py      (TokenEmbedding, PE, RoPE)
-norm.py           (LayerNorm, RMSNorm)
-attention.py      (MultiHeadAttention, GroupedQueryAttention)
-feedforward.py    (BasicFFN, GeGLU, SwiGLU)
-transformer_block.py
-causal_lm.py
-lora.py / qlora.py
+  embedding.py      (TokenEmbedding, PE, RoPE)
+  norm.py           (LayerNorm, RMSNorm)
+  attention.py      (MultiHeadAttention, GroupedQueryAttention)
+  feedforward.py    (BasicFFN, GeGLU, SwiGLU)
+  transformer_block.py
+  causal_lm.py
+  lora.py / qlora.py
 
 data/               → Stages 2–4
-filtering.py
-sft_dataset.py
-dpo_dataset.py
-grpo_dataset.py
+  filtering.py
+  sft_dataset.py
+  dpo_dataset.py
+  grpo_dataset.py
 
 loss/               → Stages 2–4
-cross_entropy.py
-dpo_loss.py
+  cross_entropy.py
+  dpo_loss.py
 
 optimizer/          → Stage 2
-adamw.py
-scheduler.py
+  adamw.py
+  scheduler.py
 
 training/           → Stages 2–4
-trainer.py
-pretrain_trainer.py
-sft_trainer.py
-dpo_trainer.py
-ppo_trainer.py
-grpo_trainer.py
+  trainer.py
+  pretrain_trainer.py
+  sft_trainer.py
+  dpo_trainer.py
+  ppo_trainer.py
+  grpo_trainer.py
 
 evaluation/         → Stage 2
-perplexity.py
-mmlu.py
-humaneval.py
+  perplexity.py
+  mmlu.py
+  humaneval.py
 
 ```
 

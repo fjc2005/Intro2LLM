@@ -1,117 +1,127 @@
-# L02: 归一化层与注意力机制
+# L02: Normalization Layers and Attention Mechanism
 
-> **课程定位**：这是 Intro2LLM 课程的**第二个实验**，是 LLM 模型核心结构的重要组成部分。在 lesson01 中，我们学习了如何将文本转换为向量表示；在本实验中，我们将学习如何通过**归一化层**稳定训练，以及通过**注意力机制**捕捉 token 之间的关系。
+> **Course Positioning**: This is the **second lab** of the Intro2LLM course, which covers crucial components of the core architecture of LLM models. In lesson01, we learned how to convert text into vector representations; in this lab, we will learn how to stabilize training through **normalization layers** and how to capture the relationships between tokens through the **attention mechanism**.
 
-## 实验目的
+## Lab Objectives
 
-本实验主要讲解归一化层（LayerNorm 和 RMSNorm）和注意力机制（Multi-Head Attention）的原理与实现。归一化层是深度学习模型中稳定训练的关键组件，而注意力机制则是 Transformer 架构的核心，负责建模序列中不同位置之间的依赖关系。
+This lab primarily explains the principles and implementations of normalization layers (LayerNorm and RMSNorm) and the attention mechanism (Multi-Head Attention). Normalization layers are key components for stable training in deep learning models, while the attention mechanism is the core of the Transformer architecture, responsible for modeling the dependencies between different positions in a sequence.
 
-### 本章你将学到
+### What You Will Learn in This Chapter
 
-- **归一化层**：理解 LayerNorm 和 RMSNorm 的区别，掌握为什么现代 LLM 偏好 RMSNorm
-- **注意力机制**：掌握缩放点积注意力的数学原理，理解多头注意力的实现
-- **工程实现**：学会使用 Python 实现完整的归一化和注意力模块
+- **Normalization Layers**: Understand the differences between LayerNorm and RMSNorm, and grasp why modern LLMs prefer RMSNorm.
+- **Attention Mechanism**: Master the mathematical principles of scaled dot-product attention, and understand the implementation of multi-head attention.
+- **Engineering Implementation**: Learn to implement complete normalization and attention modules using Python.
 
 ---
 
-## 第一部分：归一化层 (Normalization)
+## Part 1: Normalization Layers
 
-### 1.1 为什么需要归一化？
+### 1.1 Why is Normalization Needed?
 
-在深度神经网络中，**内部协变量偏移 (Internal Covariate Shift)** 是一个经典问题：随着网络层数加深，每一层的输入分布会不断偏移，导致：
-- 梯度消失或爆炸
-- 训练收敛变慢
-- 需要非常小的学习率
+In deep neural networks, **Internal Covariate Shift** is a classic problem: as the network grows deeper, the input distribution of each layer constantly shifts, leading to:
+- Vanishing or exploding gradients
+- Slower training convergence
+- The need for very small learning rates
 
-归一化层通过将激活值调整到稳定的分布，来解决这个问题。
+Normalization layers solve this problem by adjusting the activation values to a stable distribution.
 
-### 1.2 LayerNorm (层归一化)
+### 1.2 LayerNorm (Layer Normalization)
 
-#### 1.2.1 算法原理
+#### 1.2.1 Algorithm Principles
 
-LayerNorm 由 Ba 等人在 2016 年提出，是 Transformer 架构中的标准归一化方法。
+LayerNorm was proposed by Ba et al. in 2016 and is the standard normalization method in the Transformer architecture.
 
-**计算公式**：
+**Calculation Formula**:
 $$
 y = \frac{x - \mathbb{E}[x]}{\sqrt{\text{Var}[x] + \epsilon}} \odot \gamma + \beta
 $$
 
-其中：
-- $\mathbb{E}[x]$：对最后一个维度求均值
-- $\text{Var}[x]$：对最后一个维度求方差
-- $\gamma$ (weight)：可学习的缩放参数
-- $\beta$ (bias)：可学习的平移参数
-- $\epsilon$：防止除零的小常数（通常 1e-6）
+Where:
+- $\mathbb{E}[x]$: The mean over the last dimension
+- $\text{Var}[x]$: The variance over the last dimension
+- $\gamma$ (weight): Learnable scaling parameter
+- $\beta$ (bias): Learnable shift parameter
+- $\epsilon$: A small constant to prevent division by zero (usually 1e-6)
 
 #### 1.2.2 LayerNorm vs BatchNorm
 
-| 特性 | BatchNorm | LayerNorm |
+
+
+| Feature | BatchNorm | LayerNorm |
 |------|-----------|-----------|
-| 归一化维度 | batch 维度 | 特征维度 |
-| 依赖 batch | 是（训练时需要 batch） | 否 |
-| 适用场景 | CV（图像 batch 较大） | NLP（序列长度可变） |
-| RNN 适用性 | 不适用 | 适用 |
+| Normalization Dimension | Batch dimension | Feature dimension |
+| Batch Dependency | Yes (requires batch during training) | No |
+| Applicable Scenarios | CV (larger image batches) | NLP (variable sequence lengths) |
+| RNN Applicability | Not applicable | Applicable |
 
-**关键区别**：
-- BatchNorm：对 batch 维度归一化，同一特征在不同样本间归一化
-- LayerNorm：对特征维度归一化，同一样本内不同特征间归一化
+**Key Differences**:
+- BatchNorm: Normalizes across the batch dimension; the same feature is normalized across different samples.
+- LayerNorm: Normalizes across the feature dimension; different features are normalized within the same sample.
 
-LayerNorm 更适合 NLP 任务，因为：
-1. NLP 中序列长度可变，batch 大小也可能变化
-2. 不依赖 batch 统计量，推理时更稳定
+LayerNorm is more suitable for NLP tasks because:
+1. Sequence lengths in NLP are variable, and batch sizes may also change.
+2. It does not rely on batch statistics, making inference more stable.
 
 #### 1.2.3 Pre-LN vs Post-LN Transformer
 
-原始 Transformer (Post-LN) 使用：
+
+
+The original Transformer (Post-LN) uses:
+
 ```
+
 x → SubLayer(x) → Add & Norm → ... → Output
+
 ```
 
-Pre-LN Transformer 使用：
+The Pre-LN Transformer uses:
+
 ```
+
 x → Norm → SubLayer → Add → ... → Output
+
 ```
 
-**Pre-LN 的优势**：
-- 梯度更加稳定，不易出现梯度爆炸
-- 训练更鲁棒，学习率调节更简单
-- 现在大多数 LLM 采用 Pre-LN 结构
+**Advantages of Pre-LN**:
+- Gradients are more stable, making it less prone to gradient explosion.
+- Training is more robust, and learning rate tuning is simpler.
+- Most modern LLMs now adopt the Pre-LN structure.
 
-#### 1.2.4 LayerNorm 实现要点
+#### 1.2.4 LayerNorm Implementation Details
 
-**所在文件**：[model/norm.py](../../../model/norm.py)
+**File Location**: [model/norm.py](../../../model/norm.py)
 
-**需要补全的代码位置**：
-- `LayerNorm.__init__` 方法（第38-53行）
-- `LayerNorm.forward` 方法（第55-82行）
+**Code locations to complete**:
+- `LayerNorm.__init__` method (lines 38-53)
+- `LayerNorm.forward` method (lines 55-82)
 
-**实现步骤**：
+**Implementation Steps**:
 
-1. **初始化方法中**：
-   - 调用父类的初始化方法
-   - 创建形状为 `[normalized_shape]` 的 weight 参数，初始化为全 1
-   - 创建形状为 `[normalized_shape]` 的 bias 参数，初始化为全 0
-   - 使用 `nn.Parameter` 包装使其成为可学习参数
+1. **In the initialization method**:
+   - Call the parent class's initialization method.
+   - Create a weight parameter with shape `[normalized_shape]`, initialized to all 1s.
+   - Create a bias parameter with shape `[normalized_shape]`, initialized to all 0s.
+   - Wrap them with `nn.Parameter` to make them learnable parameters.
 
-2. **前向传播方法中**：
-   - 第一步：保存原始数据类型，将输入转为 float32 提高数值稳定性
-   - 第二步：沿最后一个维度计算均值，形状变为 `[..., 1]`
-   - 第三步：沿最后一个维度计算方差（使用无偏估计=False）
-   - 第四步：标准化 `(x - 均值) / sqrt(方差 + eps)`
-   - 第五步：应用可学习参数 `output = normalized * weight + bias`
-   - 第六步：恢复原始数据类型
+2. **In the forward pass method**:
+   - Step 1: Save the original data type, and cast the input to float32 to improve numerical stability.
+   - Step 2: Calculate the mean along the last dimension, shape becomes `[..., 1]`.
+   - Step 3: Calculate the variance along the last dimension (use unbiased=False).
+   - Step 4: Standardize `(x - mean) / sqrt(variance + eps)`.
+   - Step 5: Apply learnable parameters `output = normalized * weight + bias`.
+   - Step 6: Restore the original data type.
 
 ---
 
-### 1.3 RMSNorm (均方根层归一化)
+### 1.3 RMSNorm (Root Mean Square Layer Normalization)
 
-#### 1.3.1 算法原理
+#### 1.3.1 Algorithm Principles
 
-RMSNorm 由 Zhang 和 Sennrich 在 2019 年提出，是对 LayerNorm 的简化。
+RMSNorm was proposed by Zhang and Sennrich in 2019 as a simplification of LayerNorm.
 
-**核心思想**：**去掉中心化操作（去除均值）**，只保留均方根（RMS）缩放。
+**Core Idea**: **Remove the centering operation (remove the mean)**, retaining only the Root Mean Square (RMS) scaling.
 
-**计算公式**：
+**Calculation Formula**:
 $$
 \text{RMS}(x) = \sqrt{\mathbb{E}[x^2] + \epsilon}
 $$
@@ -119,112 +129,116 @@ $$
 y = \frac{x}{\text{RMS}(x)} \odot \gamma
 $$
 
-#### 1.3.2 为什么 RMSNorm 更快？
+#### 1.3.2 Why is RMSNorm Faster?
 
-1. **少计算一个均值**：
-   - LayerNorm：需要计算均值 + 方差 = 2 次统计
-   - RMSNorm：只需计算均方值 = 1 次统计
+1. **Calculates one less mean**:
+   - LayerNorm: Needs to calculate mean + variance = 2 statistical operations.
+   - RMSNorm: Only needs to calculate the mean square value = 1 statistical operation.
 
-2. **少一个偏置参数**：
-   - LayerNorm：有 weight + bias 两个参数
-   - RMSNorm：只有 weight 一个参数
+2. **One less bias parameter**:
+   - LayerNorm: Has two parameters, weight + bias.
+   - RMSNorm: Has only one parameter, weight.
 
-3. **数学运算更简单**：
-   - 省去减均值的操作
+3. **Simpler mathematical operations**:
+   - Omits the operation of subtracting the mean.
 
-#### 1.3.3 为什么现代 LLM 偏好 RMSNorm？
+#### 1.3.3 Why Do Modern LLMs Prefer RMSNorm?
 
-1. **计算效率高**：减少约 30% 的归一化计算时间
+1. **High computational efficiency**: Reduces normalization computation time by about 30%.
 
-2. **Pre-LN 结构不需要 bias**：
-   - Post-LN 中，残差连接后的 bias 用于重新定位激活分布
-   - Pre-LN 中，每层先归一化再计算残差，不需要 bias 来"重新定位"
-   - RMSNorm 去掉 bias 是合理的
+2. **Pre-LN structure does not need bias**:
+   - In Post-LN, the bias after the residual connection is used to re-center the activation distribution.
+   - In Pre-LN, each layer is normalized before the residual calculation, so bias is not needed to "re-center".
+   - Removing the bias in RMSNorm is mathematically sound here.
 
-3. **Empirical 表现相当或更好**：
-   - LLaMA、Qwen、Mistral、Gemma 等都采用 RMSNorm
+3. **Comparable or better empirical performance**:
+   - LLaMA, Qwen, Mistral, Gemma, etc., all adopt RMSNorm.
 
-#### 1.3.4 RMSNorm 实现要点
+#### 1.3.4 RMSNorm Implementation Details
 
-**所在文件**：[model/norm.py](../../../model/norm.py)
+**File Location**: [model/norm.py](../../../model/norm.py)
 
-**需要补全的代码位置**：
-- `RMSNorm.__init__` 方法（第107-121行）
-- `RMSNorm.forward` 方法（第123-162行）
+**Code locations to complete**:
+- `RMSNorm.__init__` method (lines 107-121)
+- `RMSNorm.forward` method (lines 123-162)
 
-**实现步骤**：
+**Implementation Steps**:
 
-1. **初始化方法中**：
-   - 调用父类的初始化方法
-   - 创建形状为 `[hidden_size]` 的 weight 参数，初始化为全 1（乘法单位元）
-   - 使用 `nn.Parameter` 包装
+1. **In the initialization method**:
+   - Call the parent class's initialization method.
+   - Create a weight parameter with shape `[hidden_size]`, initialized to all 1s (multiplicative identity).
+   - Wrap it with `nn.Parameter`.
 
-2. **前向传播方法中**：
-   - 第一步：保存原始数据类型，转为 float32
-   - 第二步：计算均方值 `MS = mean(x^2)`，形状 `[..., 1]`
-   - 第三步：使用 `rsqrt` 计算平方根倒数 `inv_rms = 1 / sqrt(MS + eps)`
-   - 第四步：归一化 `x * inv_rms`，利用广播机制
-   - 第五步：应用可学习缩放 `normalized * weight`
-   - 第六步：恢复原始数据类型
+2. **In the forward pass method**:
+   - Step 1: Save the original data type, cast to float32.
+   - Step 2: Calculate the mean square value `MS = mean(x^2)`, shape `[..., 1]`.
+   - Step 3: Use `rsqrt` to calculate the reciprocal of the square root `inv_rms = 1 / sqrt(MS + eps)`.
+   - Step 4: Normalize `x * inv_rms`, utilizing broadcasting.
+   - Step 5: Apply learnable scaling `normalized * weight`.
+   - Step 6: Restore the original data type.
 
 ---
 
-## 第二部分：注意力机制 (Attention)
+## Part 2: Attention Mechanism
 
-### 2.1 注意力机制的直观理解
+### 2.1 Intuitive Understanding of the Attention Mechanism
 
-注意力机制的核心思想是：**在处理当前位置时，决定应该"关注"前面哪些位置的信息**。
+The core idea of the attention mechanism is: **When processing the current position, decide which preceding positions' information should be "paid attention to"**.
 
-**类比**：阅读一段文字时，我们不会记住每一个细节，而是有选择地关注关键词。注意力机制就是在模拟这个过程。
+**Analogy**: When reading a passage of text, we do not memorize every single detail, but selectively focus on keywords. The attention mechanism simulates this process.
 
-**数学表达**：
+
+
+**Mathematical Expression**:
 $$
 \text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
 $$
 
-- $Q$ (Query)：当前位置"想要什么"
-- $K$ (Key)：每个位置"提供什么"
-- $V$ (Value)：每个位置的"实际内容"
-- $d_k$：Key 的维度
+- $Q$ (Query): What the current position "wants"
+- $K$ (Key): What each position "offers"
+- $V$ (Value): The "actual content" of each position
+- $d_k$: The dimension of the Key
 
-### 2.2 缩放点积注意力
+### 2.2 Scaled Dot-Product Attention
 
-#### 2.2.1 数学推导
+#### 2.2.1 Mathematical Derivation
 
-**点积注意力的优势**：
-- 计算效率高（矩阵乘法，GPU 友好）
-- 可以并行计算
+**Advantages of dot-product attention**:
+- High computational efficiency (matrix multiplication, GPU friendly)
+- Can be calculated in parallel
 
-**为什么要缩放（除以 $\sqrt{d_k}$）**？
+**Why scale (divide by $\sqrt{d_k}$)?**
 
-假设 $Q$ 和 $K$ 的各元素是均值为 0、方差为 1 的独立随机变量，则：
-- $QK^T$ 的每个元素的均值为 0
-- $QK^T$ 的每个元素的方差为 $d_k$
+Assuming the elements of $Q$ and $K$ are independent random variables with a mean of 0 and a variance of 1, then:
+- The mean of each element in $QK^T$ is 0
+- The variance of each element in $QK^T$ is $d_k$
 
-当 $d_k$ 较大时，方差也会很大，导致 softmax 函数的输入趋于无穷大，梯度变得非常小（梯度消失）。
+When $d_k$ is large, the variance will also be very large, causing the input to the softmax function to approach infinity, and the gradients to become very small (vanishing gradients).
 
-**解决方法是除以 $\sqrt{d_k}$**：
-- 缩放后 $QK^T$ 的方差恢复到 1
-- softmax 函数的输入分布在合理范围内
-- 梯度更稳定
+**The solution is to divide by $\sqrt{d_k}$**:
+- After scaling, the variance of $QK^T$ is restored to 1.
+- The input distribution for the softmax function stays within a reasonable range.
+- Gradients are more stable.
 
-> **证明**：
-> 设 $q_i, k_j \sim \mathcal{N}(0, 1)$，则 $E[q_i k_j] = 0$，$Var(q_i k_j) = E[q_i^2]E[k_j^2] - (E[q_i]E[k_j])^2 = 1 \cdot 1 - 0 = 1$（假设独立）
-> 因此 $Var(\sum_i q_i k_i) = d_k$
+> **Proof**:
+> Let $q_i, k_j \sim \mathcal{N}(0, 1)$, then $E[q_i k_j] = 0$, $Var(q_i k_j) = E[q_i^2]E[k_j^2] - (E[q_i]E[k_j])^2 = 1 \cdot 1 - 0 = 1$ (assuming independence).
+> Therefore, $Var(\sum_i q_i k_i) = d_k$.
 
-#### 2.2.2 掩码机制
+#### 2.2.2 Masking Mechanism
 
-**因果掩码 (Causal Mask)**：
-- 在自回归生成中，当前位置只能看到之前的位置
-- 实现方法：将 $QK^T$ 的上三角设为 $-\infty$
+**Causal Mask**:
+- In autoregressive generation, the current position can only see previous positions.
+- Implementation method: Set the upper triangle of $QK^T$ to $-\infty$.
 
 ### 2.3 Multi-Head Attention (MHA)
 
-#### 2.3.1 算法原理
 
-单头注意力只能捕捉一种类型的依赖关系。多头注意力通过**多个独立的注意力头**，让模型同时关注不同类型的信息。
 
-**核心公式**：
+#### 2.3.1 Algorithm Principles
+
+A single attention head can only capture one type of dependency. Multi-head attention uses **multiple independent attention heads** to allow the model to jointly attend to information from different representation subspaces.
+
+**Core Formula**:
 $$
 \text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, \ldots, \text{head}_h)W^O
 $$
@@ -232,95 +246,95 @@ $$
 \text{where } \text{head}_i = \text{Attention}(QW_i^Q, KW_i^K, VW_i^V)
 $$
 
-**参数关系**：
+**Parameter Relationships**:
 - `num_heads * head_dim = hidden_size`
-- 每个头的维度 `head_dim = hidden_size // num_heads`
+- Dimension of each head `head_dim = hidden_size // num_heads`
 
-#### 2.3.2 特点
+#### 2.3.2 Characteristics
 
-**优点**：
-- 每个头可以学习不同类型的依赖关系（如语法、语义、位置）
-- 并行计算，效率高
+**Advantages**:
+- Each head can learn different types of dependencies (e.g., syntax, semantics, position).
+- Parallel computation, high efficiency.
 
-### 2.4 MultiHeadAttention 实现要点
+### 2.4 MultiHeadAttention Implementation Details
 
-**所在文件**：[model/attention.py](../../../model/attention.py)
+**File Location**: [model/attention.py](../../../model/attention.py)
 
-**需要补全的代码位置**：
-- `MultiHeadAttention.__init__` 方法（第37-60行）
-- `MultiHeadAttention.forward` 方法（第62-144行）
+**Code locations to complete**:
+- `MultiHeadAttention.__init__` method (lines 37-60)
+- `MultiHeadAttention.forward` method (lines 62-144)
 
-**实现步骤**：
+**Implementation Steps**:
 
-1. **初始化方法中**：
-   - 从配置中提取 hidden_size、num_attention_heads、attention_dropout
-   - 验证 hidden_size 能被 num_heads 整除
-   - 创建四个线性投影层：q_proj, k_proj, v_proj, o_proj
-   - 投影维度都是 [hidden_size, hidden_size]
+1. **In the initialization method**:
+   - Extract hidden_size, num_attention_heads, attention_dropout from the config.
+   - Verify that hidden_size is divisible by num_heads.
+   - Create four linear projection layers: q_proj, k_proj, v_proj, o_proj.
+   - Projection dimensions are all `[hidden_size, hidden_size]`.
 
-2. **前向传播方法中**：
-   - **Step 1**：线性投影得到 Q、K、V
-   - **Step 2**：reshape 为多头形式 `[batch, num_heads, seq, head_dim]`
-   - **Step 3**：应用 RoPE（旋转位置编码）
-   - **Step 4**：计算缩放点积注意力分数 `scores = (Q · K^T) / sqrt(d_k)`
-   - **Step 5**：应用注意力掩码
-   - **Step 6**：softmax 得到注意力权重
-   - **Step 7**：计算加权输出 `output = weights · V`
-   - **Step 8**：reshape 回原始维度
-   - **Step 9**：输出投影
-
----
-
-## 代码补全位置汇总
-
-### 文件 1: [model/norm.py](../../../model/norm.py)
-
-| 类 | 方法 | 行号 | 功能 |
-|------|------|------|------|
-| `LayerNorm` | `__init__` | 38-53 | 创建 weight 和 bias 参数 |
-| `LayerNorm` | `forward` | 55-82 | 实现层归一化 |
-| `RMSNorm` | `__init__` | 107-121 | 创建 weight 参数 |
-| `RMSNorm` | `forward` | 123-162 | 实现 RMS 归一化 |
-
-### 文件 2: [model/attention.py](../../../model/attention.py)
-
-| 类 | 方法 | 行号 | 功能 |
-|------|------|------|------|
-| `MultiHeadAttention` | `__init__` | 37-60 | 初始化 Q/K/V/O 投影层 |
-| `MultiHeadAttention` | `forward` | 62-144 | 实现多头注意力 |
+2. **In the forward pass method**:
+   - **Step 1**: Linear projection to obtain Q, K, V.
+   - **Step 2**: Reshape into multi-head format `[batch, num_heads, seq, head_dim]`.
+   - **Step 3**: Apply RoPE (Rotary Position Embedding).
+   - **Step 4**: Calculate scaled dot-product attention scores `scores = (Q · K^T) / sqrt(d_k)`.
+   - **Step 5**: Apply attention mask.
+   - **Step 6**: Apply softmax to obtain attention weights.
+   - **Step 7**: Calculate weighted output `output = weights · V`.
+   - **Step 8**: Reshape back to the original dimensions.
+   - **Step 9**: Output projection.
 
 ---
 
-## 练习
+## Code Completion Locations Summary
 
-### 对实验报告的要求
+### File 1: [model/norm.py](../../../model/norm.py)
 
-- 基于 markdown 格式来完成，以文本方式为主
-- 填写各个基本练习中要求完成的报告内容
-- 列出你认为本实验中重要的知识点，以及与对应的 LLM 原理中的知识点，并简要说明你对二者的含义、关系、差异等方面的理解
+| Class | Method | Lines | Function |
+|------|------|------|------|
+| `LayerNorm` | `__init__` | 38-53 | Create weight and bias parameters |
+| `LayerNorm` | `forward` | 55-82 | Implement layer normalization |
+| `RMSNorm` | `__init__` | 107-121 | Create weight parameter |
+| `RMSNorm` | `forward` | 123-162 | Implement RMS normalization |
 
-### 练习 1：理解 LayerNorm vs RMSNorm
+### File 2: [model/attention.py](../../../model/attention.py)
 
-阅读 `model/norm.py`，思考并回答：
+| Class | Method | Lines | Function |
+|------|------|------|------|
+| `MultiHeadAttention` | `__init__` | 37-60 | Initialize Q/K/V/O projection layers |
+| `MultiHeadAttention` | `forward` | 62-144 | Implement multi-head attention |
 
-1. LayerNorm 和 RMSNorm 的核心区别是什么？为什么 RMSNorm 更快？
-2. Pre-LN Transformer 为什么不需要 LayerNorm 中的 bias 参数？
-3. 如果将 RMSNorm 的 weight 初始化为全 0，会发生什么？为什么？
+---
 
-### 练习 2：理解注意力机制
+## Exercises
 
-阅读 `model/attention.py`，思考并回答：
+### Lab Report Requirements
 
-1. 缩放因子 $\sqrt{d_k}$ 的作用是什么？如果不除以这个值，会出现什么问题？
-2. 注意力掩码（causal mask）的作用是什么？如何实现？
-3. 为什么 MultiHeadAttention 需要对 Q、K、V 分别做线性投影，而不是直接使用输入？
+- Complete it in Markdown format, primarily text-based.
+- Fill in the required report content for each basic exercise.
+- List the key knowledge points you consider important in this lab, correspond them to the relevant LLM principles, and briefly explain your understanding of their meanings, relationships, and differences.
 
-### 练习 3：验证你的实现
+### Exercise 1: Understand LayerNorm vs RMSNorm
 
-运行以下测试代码，验证你的实现是否正确：
+Read `model/norm.py`, think about and answer:
+
+1. What is the core difference between LayerNorm and RMSNorm? Why is RMSNorm faster?
+2. Why doesn't the Pre-LN Transformer need the bias parameter from LayerNorm?
+3. If the weight of RMSNorm is initialized to all 0s, what would happen? Why?
+
+### Exercise 2: Understand the Attention Mechanism
+
+Read `model/attention.py`, think about and answer:
+
+1. What is the role of the scaling factor $\sqrt{d_k}$? What problem would occur if we didn't divide by this value?
+2. What is the purpose of the causal mask? How is it implemented?
+3. Why does MultiHeadAttention need to apply linear projections to Q, K, and V separately, instead of directly using the inputs?
+
+### Exercise 3: Verify Your Implementation
+
+Run the following test code to verify if your implementation is correct:
 
 ```python
-# 测试 LayerNorm
+# Test LayerNorm
 import torch
 from model.norm import LayerNorm
 
@@ -328,16 +342,16 @@ norm = LayerNorm(normalized_shape=128)
 x = torch.randn(4, 16, 128)
 output = norm(x)
 
-# 验证形状
-assert output.shape == x.shape, f"形状应为 {x.shape}，实际为 {output.shape}"
+# Verify shape
+assert output.shape == x.shape, f"Shape should be {x.shape}, but got {output.shape}"
 
-# 验证归一化效果
+# Verify normalization effect
 mean = output.mean(dim=-1)
 std = output.std(dim=-1)
-assert torch.allclose(mean, torch.zeros_like(mean), atol=1e-4), "均值应接近 0"
-print("LayerNorm 测试通过！")
+assert torch.allclose(mean, torch.zeros_like(mean), atol=1e-4), "Mean should be close to 0"
+print("LayerNorm test passed!")
 
-# 测试 RMSNorm
+# Test RMSNorm
 from model.norm import RMSNorm
 
 rms_norm = RMSNorm(hidden_size=128)
@@ -345,9 +359,9 @@ x = torch.randn(4, 16, 128)
 output = rms_norm(x)
 
 assert output.shape == x.shape
-print("RMSNorm 测试通过！")
+print("RMSNorm test passed!")
 
-# 测试 MultiHeadAttention
+# Test MultiHeadAttention
 from model.attention import MultiHeadAttention
 from model.config import ModelConfig
 
@@ -373,50 +387,55 @@ x = torch.randn(2, 16, config.hidden_size)
 output, _ = mha(x)
 
 assert output.shape == x.shape
-print("MultiHeadAttention 测试通过！")
+print("MultiHeadAttention test passed!")
 
-print("\n所有测试通过！")
+print("\nAll tests passed!")
+
 ```
 
 ---
 
-## 常见问题 FAQ
+## Frequently Asked Questions (FAQ)
 
-**Q1: LayerNorm 和 RMSNorm 在实际应用中有多大差别？**
-A: 在大多数情况下，两者的表现非常接近。RMSNorm 的优势主要在于计算速度更快（约 30%）和参数更少。由于 Pre-LN Transformer 的流行，RMSNorm 已成为现代 LLM 的默认选择。
+**Q1: How big is the difference between LayerNorm and RMSNorm in practical applications?**
+A: In most cases, their performance is very close. The main advantages of RMSNorm are faster computation speed (about 30%) and fewer parameters. Due to the popularity of the Pre-LN Transformer, RMSNorm has become the default choice for modern LLMs.
 
-**Q2: 为什么要除以 $\sqrt{d_k}$ 而不是 $d_k$？**
-A: 如果除以 $d_k$，会使得注意力分数的值过小，导致 softmax 接近均匀分布，模型无法学习到显著的注意力模式。除以 $\sqrt{d_k}$ 使得方差恢复到 1，softmax 的输入分布更合理。
+**Q2: Why divide by $\sqrt{d_k}$ instead of $d_k$?**
+A: If divided by $d_k$, the attention score values would become too small, causing the softmax to approach a uniform distribution, and the model wouldn't be able to learn significant attention patterns. Dividing by $\sqrt{d_k}$ restores the variance to 1, making the input distribution for softmax more reasonable.
 
-**Q3: 为什么每个头需要独立的 Q、K、V 投影？**
-A: 独立的投影让每个头可以学习不同的注意力模式，捕捉不同类型的信息（如语法、语义、位置关系）。如果共享投影，所有头将学习到相同的注意力模式。
+**Q3: Why does each head need independent Q, K, V projections?**
+A: Independent projections allow each head to learn different attention patterns and capture different types of information (such as syntax, semantics, and positional relationships). If the projections were shared, all heads would learn the exact same attention patterns.
 
-**Q4: 因果掩码在哪里应用？**
-A: 因果掩码应用在 $QK^T$ 矩阵上，将当前位置之后的分数设为 $-\infty$，这样 softmax 后这些位置的注意力权重趋近于 0。
+**Q4: Where is the causal mask applied?**
+A: The causal mask is applied to the $QK^T$ matrix, setting the scores of positions after the current position to $-\infty$, so that after softmax, the attention weights for these positions approach 0.
 
-**Q5: 多头注意力中 head_dim 必须是整数吗？**
-A: 是的，hidden_size 必须能被 num_attention_heads 整除，否则无法均匀分割成多个头。
+**Q5: Must the head_dim in multi-head attention be an integer?**
+A: Yes, hidden_size must be divisible by num_attention_heads; otherwise, it cannot be evenly divided into multiple heads.
 
 ---
 
-## 延伸阅读
+## Further Reading
 
-### 原始论文
+### Original Papers
 
 1. **LayerNorm**: "Layer Normalization" - Ba et al., 2016
-   - https://arxiv.org/abs/1607.06450
+* https://arxiv.org/abs/1607.06450
+
 
 2. **RMSNorm**: "Root Mean Square Layer Normalization" - Zhang & Sennrich, 2019
-   - https://arxiv.org/abs/1910.07467
+* https://arxiv.org/abs/1910.07467
+
 
 3. **Attention**: "Attention Is All You Need" - Vaswani et al., 2017
-   - https://arxiv.org/abs/1706.03762
+* https://arxiv.org/abs/1706.03762
 
-### 实践参考
 
-- **Flash Attention**: 了解 GPU 优化的注意力实现（https://github.com/Dao-AILab/flash-attention）
 
-### 拓展阅读
+### Practical References
 
-- **Pre-LN Transformer**: "On Layer Normalization in the Transformer Architecture" - Xiong et al., 2020
-- 了解 Pre-LN vs Post-LN 的区别及其对训练稳定性的影响
+* **Flash Attention**: Understand GPU-optimized attention implementations (https://github.com/Dao-AILab/flash-attention)
+
+### Extended Reading
+
+* **Pre-LN Transformer**: "On Layer Normalization in the Transformer Architecture" - Xiong et al., 2020
+* Understand the differences between Pre-LN vs Post-LN and their impact on training stability
